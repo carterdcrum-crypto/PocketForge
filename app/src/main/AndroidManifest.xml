@@ -9,6 +9,9 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.PocketForge">
         <activity
+            android:name=".IntegrationCenterActivity"
+            android:exported="false" />
+        <activity
             android:name=".MainActivity"
             android:exported="true">
             <intent-filter>
