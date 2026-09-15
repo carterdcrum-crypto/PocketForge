@@ -8,7 +8,12 @@ class StudioSpecTest {
     @Test fun startersAreValidAndRoundTrip() {
         StudioStarters.all.forEach { starter ->
             val valid = starter.spec.validate()
-            assertEquals(valid, StudioSpec.parse(valid.json().toString()))
+            val parsed = try {
+                StudioSpec.parse(valid.json().toString())
+            } catch (error: Throwable) {
+                throw AssertionError("Could not round-trip starter '${starter.title}': ${error.message}", error)
+            }
+            assertEquals("Round-trip starter '${starter.title}'", valid, parsed)
         }
     }
 
