@@ -30,6 +30,12 @@ Return JSON only with these string keys: summary, scope, protected, verify, impl
 Be concise. Protect unrelated working behavior. Verification must include compiling and testing.
 """
 
+    private const val REVIEW_SYSTEM = """
+You are PocketForge's independent senior reviewer. Inspect the user's request and another architect's proposed implementation contract.
+Find missing requirements, risky assumptions, regressions, security/privacy issues, build risks, and opportunities to make the product more useful without broadening scope recklessly.
+Return concise plain text. Do not praise the proposal. Focus on concrete corrections.
+"""
+
     fun configuredProviders(vault: SecretVault): List<FreeAiProvider> = buildList {
         if (vault.has(IntegrationKeys.GEMINI)) add(FreeAiProvider.GEMINI)
         if (vault.has(IntegrationKeys.OPENROUTER)) add(FreeAiProvider.OPENROUTER)
@@ -39,6 +45,61 @@ Be concise. Protect unrelated working behavior. Verification must include compil
     fun planBest(prompt: String, vault: SecretVault): AiPlan {
         val routed = askBest(PLAN_SYSTEM.trim(), prompt, vault, expectJson = true)
         return normalize(routed.provider, routed.text)
+    }
+
+    /**
+     * Multi-agent planning mode. Two providers independently reason about the request;
+     * a third (or the first when only two are configured) synthesizes the final contract.
+     * With one configured provider this safely falls back to the normal planner.
+     */
+    fun planConsensus(prompt: String, vault: SecretVault): AiPlan {
+        val providers = configuredProviders(vault)
+        if (providers.size < 2) return planBest(prompt, vault)
+
+        val architect = providers[0]
+        val reviewer = providers[1]
+        val architectRaw = ask(architect, PLAN_SYSTEM.trim(), prompt, vault, expectJson = true)
+        val firstPlan = normalize(architect.label, architectRaw)
+
+        val reviewPrompt = buildString {
+            appendLine("USER REQUEST:")
+            appendLine(prompt)
+            appendLine()
+            appendLine("ARCHITECT CONTRACT:")
+            appendLine("Summary: ${firstPlan.summary}")
+            appendLine("Scope: ${firstPlan.scope}")
+            appendLine("Protected: ${firstPlan.protected}")
+            appendLine("Verify: ${firstPlan.verify}")
+            appendLine("Implementation notes: ${firstPlan.implementationNotes}")
+        }
+        val critique = ask(reviewer, REVIEW_SYSTEM.trim(), reviewPrompt, vault)
+
+        val synthesizer = providers.getOrElse(2) { architect }
+        val synthesisPrompt = buildString {
+            appendLine("Create the final safe Android implementation contract.")
+            appendLine("Return JSON only with keys summary, scope, protected, verify, implementationNotes.")
+            appendLine()
+            appendLine("USER REQUEST:")
+            appendLine(prompt)
+            appendLine()
+            appendLine("FIRST CONTRACT:")
+            appendLine(architectRaw)
+            appendLine()
+            appendLine("INDEPENDENT REVIEW:")
+            appendLine(critique)
+            appendLine()
+            appendLine("Resolve conflicts conservatively. Keep requested functionality, protect working behavior, and make verification executable.")
+        }
+        val finalRaw = ask(
+            synthesizer,
+            "You are PocketForge's lead integrator. Reconcile an architect plan and independent code-review critique into one implementation contract.",
+            synthesisPrompt,
+            vault,
+            expectJson = true
+        )
+        val finalPlan = normalize(synthesizer.label, finalRaw)
+        val label = "Consensus · ${architect.label} + ${reviewer.label} → ${synthesizer.label}"
+        return finalPlan.copy(provider = label)
     }
 
     fun askBest(
