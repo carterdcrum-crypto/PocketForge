@@ -15,52 +15,76 @@ data class AiPlan(
     val implementationNotes: String
 )
 
+data class RoutedAiResponse(val provider: String, val text: String)
+
+enum class FreeAiProvider(val label: String) {
+    GEMINI("Gemini 3.8 Flash"),
+    OPENROUTER("OpenRouter Free"),
+    GROQ("Groq GPT-OSS 120B")
+}
+
 object AiRouter {
-    private const val SYSTEM_PROMPT = """
+    private const val PLAN_SYSTEM = """
 You are PocketForge's software architect. Turn the user's plain-English app request into a safe implementation contract for an Android app.
 Return JSON only with these string keys: summary, scope, protected, verify, implementationNotes.
 Be concise. Protect unrelated working behavior. Verification must include compiling and testing.
 """
 
+    fun configuredProviders(vault: SecretVault): List<FreeAiProvider> = buildList {
+        if (vault.has(IntegrationKeys.GEMINI)) add(FreeAiProvider.GEMINI)
+        if (vault.has(IntegrationKeys.OPENROUTER)) add(FreeAiProvider.OPENROUTER)
+        if (vault.has(IntegrationKeys.GROQ)) add(FreeAiProvider.GROQ)
+    }
+
     fun planBest(prompt: String, vault: SecretVault): AiPlan {
+        val routed = askBest(PLAN_SYSTEM.trim(), prompt, vault, expectJson = true)
+        return normalize(routed.provider, routed.text)
+    }
+
+    fun askBest(
+        systemPrompt: String,
+        userPrompt: String,
+        vault: SecretVault,
+        exclude: Set<FreeAiProvider> = emptySet(),
+        expectJson: Boolean = false
+    ): RoutedAiResponse {
         val failures = mutableListOf<String>()
+        val order = configuredProviders(vault).filterNot(exclude::contains)
+        if (order.isEmpty()) error("Connect at least one AI provider in Integration Center.")
 
-        val gemini = vault.get(IntegrationKeys.GEMINI)
-        if (gemini.isNotBlank()) {
-            runCatching { return normalize("Gemini", callGemini(gemini, prompt)) }
-                .onFailure { failures += "Gemini: ${it.message}" }
+        for (provider in order) {
+            runCatching {
+                return RoutedAiResponse(provider.label, ask(provider, systemPrompt, userPrompt, vault, expectJson))
+            }.onFailure { failures += "${provider.label}: ${it.message}" }
         }
+        error("Every eligible AI provider failed. ${failures.joinToString(" | ")}")
+    }
 
-        val openRouter = vault.get(IntegrationKeys.OPENROUTER)
-        if (openRouter.isNotBlank()) {
-            runCatching { return normalize("OpenRouter Free", callOpenRouter(openRouter, prompt)) }
-                .onFailure { failures += "OpenRouter: ${it.message}" }
-        }
-
-        val groq = vault.get(IntegrationKeys.GROQ)
-        if (groq.isNotBlank()) {
-            runCatching { return normalize("Groq", callGroq(groq, prompt)) }
-                .onFailure { failures += "Groq: ${it.message}" }
-        }
-
-        if (gemini.isBlank() && openRouter.isBlank() && groq.isBlank()) {
-            error("Connect at least one AI provider in Integration Center.")
-        }
-        error("Every configured AI provider failed. ${failures.joinToString(" | ")}")
+    fun ask(
+        provider: FreeAiProvider,
+        systemPrompt: String,
+        userPrompt: String,
+        vault: SecretVault,
+        expectJson: Boolean = false
+    ): String = when (provider) {
+        FreeAiProvider.GEMINI -> callGemini(vault.get(IntegrationKeys.GEMINI), systemPrompt, userPrompt, expectJson)
+        FreeAiProvider.OPENROUTER -> callOpenRouter(vault.get(IntegrationKeys.OPENROUTER), systemPrompt, userPrompt)
+        FreeAiProvider.GROQ -> callGroq(vault.get(IntegrationKeys.GROQ), systemPrompt, userPrompt)
     }
 
     fun test(provider: String, key: String): String = when (provider) {
-        "openrouter" -> extractText(callOpenRouter(key, "Reply with exactly: PocketForge OpenRouter connected"))
-        "gemini" -> extractText(callGemini(key, "Reply with exactly: PocketForge Gemini connected"))
-        "groq" -> extractText(callGroq(key, "Reply with exactly: PocketForge Groq connected"))
+        "openrouter" -> callOpenRouter(key, "You are testing an API connection.", "Reply with exactly: PocketForge OpenRouter connected").trim()
+        "gemini" -> callGemini(key, "You are testing an API connection.", "Reply with exactly: PocketForge Gemini connected", false).trim()
+        "groq" -> callGroq(key, "You are testing an API connection.", "Reply with exactly: PocketForge Groq connected").trim()
         else -> error("Unknown provider")
     }
 
-    private fun callOpenRouter(key: String, userPrompt: String): String {
+    private fun callOpenRouter(key: String, systemPrompt: String, userPrompt: String): String {
+        require(key.isNotBlank()) { "OpenRouter key is missing." }
         val body = JSONObject()
             .put("model", "openrouter/free")
             .put("messages", JSONArray()
-                .put(JSONObject().put("role", "system").put("content", SYSTEM_PROMPT.trim()))
+                .put(JSONObject().put("role", "system").put("content", systemPrompt))
                 .put(JSONObject().put("role", "user").put("content", userPrompt)))
             .put("temperature", 0.2)
         val result = requestJson(
@@ -77,16 +101,23 @@ Be concise. Protect unrelated working behavior. Verification must include compil
             .getJSONObject("message").optString("content")
     }
 
-    private fun callGemini(key: String, userPrompt: String): String {
+    private fun callGemini(
+        key: String,
+        systemPrompt: String,
+        userPrompt: String,
+        expectJson: Boolean
+    ): String {
+        require(key.isNotBlank()) { "Gemini key is missing." }
         val encoded = URLEncoder.encode(key, Charsets.UTF_8.name())
+        val generationConfig = JSONObject().put("temperature", 0.2)
+        if (expectJson) generationConfig.put("responseMimeType", "application/json")
+
         val body = JSONObject()
-            .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", SYSTEM_PROMPT.trim()))))
+            .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", systemPrompt))))
             .put("contents", JSONArray().put(JSONObject()
                 .put("role", "user")
                 .put("parts", JSONArray().put(JSONObject().put("text", userPrompt)))))
-            .put("generationConfig", JSONObject()
-                .put("temperature", 0.2)
-                .put("responseMimeType", "application/json"))
+            .put("generationConfig", generationConfig)
         val result = requestJson(
             "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=$encoded",
             body,
@@ -98,11 +129,12 @@ Be concise. Protect unrelated working behavior. Verification must include compil
             .optString("text")
     }
 
-    private fun callGroq(key: String, userPrompt: String): String {
+    private fun callGroq(key: String, systemPrompt: String, userPrompt: String): String {
+        require(key.isNotBlank()) { "Groq key is missing." }
         val body = JSONObject()
             .put("model", "openai/gpt-oss-120b")
             .put("messages", JSONArray()
-                .put(JSONObject().put("role", "system").put("content", SYSTEM_PROMPT.trim()))
+                .put(JSONObject().put("role", "system").put("content", systemPrompt))
                 .put(JSONObject().put("role", "user").put("content", userPrompt)))
             .put("temperature", 0.2)
         val result = requestJson(
@@ -125,7 +157,7 @@ Be concise. Protect unrelated working behavior. Verification must include compil
         val json = runCatching { JSONObject(cleaned) }.getOrNull()
         return AiPlan(
             provider = provider,
-            summary = json?.optString("summary")?.takeIf { it.isNotBlank() } ?: extractText(raw),
+            summary = json?.optString("summary")?.takeIf { it.isNotBlank() } ?: raw.trim(),
             scope = json?.optString("scope")?.takeIf { it.isNotBlank() } ?: "Requested app/change only",
             protected = json?.optString("protected")?.takeIf { it.isNotBlank() } ?: "Unrelated working screens, data, and behavior",
             verify = json?.optString("verify")?.takeIf { it.isNotBlank() } ?: "Compile, run tests, and reject a red build",
@@ -133,13 +165,11 @@ Be concise. Protect unrelated working behavior. Verification must include compil
         )
     }
 
-    private fun extractText(raw: String): String = raw.trim().ifBlank { "Provider returned an empty response." }
-
     private fun requestJson(url: String, body: JSONObject, headers: Map<String, String>): String {
         val connection = (URL(url).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = 20_000
-            readTimeout = 60_000
+            readTimeout = 90_000
             doOutput = true
             setRequestProperty("Content-Type", "application/json")
             setRequestProperty("Accept", "application/json")
@@ -152,8 +182,15 @@ Be concise. Protect unrelated working behavior. Verification must include compil
             val stream = if (code in 200..299) connection.inputStream else connection.errorStream
             val response = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
             if (code !in 200..299) {
-                val message = runCatching { JSONObject(response).optJSONObject("error")?.optString("message") }.getOrNull()
-                error(message?.takeIf { it.isNotBlank() } ?: "HTTP $code")
+                val message = runCatching {
+                    val error = JSONObject(response).opt("error")
+                    when (error) {
+                        is JSONObject -> error.optString("message")
+                        is String -> error
+                        else -> JSONObject(response).optString("message")
+                    }
+                }.getOrDefault("")
+                error(message.takeIf { it.isNotBlank() } ?: "HTTP $code")
             }
             response
         } finally {
