@@ -1,6 +1,9 @@
 package com.pocketforge.app
 
+import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.BorderStroke
@@ -16,6 +19,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -26,6 +30,7 @@ private val ForgeLine = Color(0xFF232A35)
 private val ForgeAccent = Color(0xFF7CFFB2)
 private val ForgeText = Color(0xFFF2F5F7)
 private val ForgeMuted = Color(0xFF9AA6B2)
+private val ForgeWarn = Color(0xFFFFC66D)
 
 private val PreviewBg = Color(0xFF07111E)
 private val PreviewCard = Color(0xFF0F1C2B)
@@ -132,18 +137,22 @@ private fun ForgeTopBar() {
 
 @Composable
 private fun BuildScreen(onPreview: () -> Unit) {
+    val context = LocalContext.current
+    val vault = remember { SecretVault(context) }
     var prompt by remember { mutableStateOf("Make me an app that tracks my work hours and tells me what my paycheck should be.") }
-    var planned by remember { mutableStateOf(false) }
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp)
-    ) {
+    var plan by remember { mutableStateOf<AiPlan?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val hasAi = vault.has(IntegrationKeys.OPENROUTER) || vault.has(IntegrationKeys.GEMINI) || vault.has(IntegrationKeys.GROQ)
+
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp)) {
         Text("What do you want to build?", fontSize = 26.sp, fontWeight = FontWeight.Black, color = ForgeText)
         Spacer(Modifier.height(6.dp))
-        Text("Talk normally. PocketForge handles the code, project files and build system.", color = ForgeMuted)
+        Text("Talk normally. PocketForge routes the job to the best connected AI and protects unrelated working code.", color = ForgeMuted)
         Spacer(Modifier.height(18.dp))
         OutlinedTextField(
             value = prompt,
-            onValueChange = { prompt = it; planned = false },
+            onValueChange = { prompt = it; plan = null; error = null },
             modifier = Modifier.fillMaxWidth().heightIn(min = 150.dp),
             placeholder = { Text("Describe your app or the change you want…") },
             colors = OutlinedTextFieldDefaults.colors(
@@ -157,96 +166,115 @@ private fun BuildScreen(onPreview: () -> Unit) {
             shape = RoundedCornerShape(18.dp)
         )
         Spacer(Modifier.height(12.dp))
-        Button(
-            onClick = { planned = true },
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = ForgeAccent, contentColor = Color.Black)
-        ) { Text("Plan this build", fontWeight = FontWeight.Bold, modifier = Modifier.padding(6.dp)) }
+
+        if (!hasAi) {
+            ForgeCardBlock {
+                Text("Connect a free AI first", color = ForgeText, fontWeight = FontWeight.Bold)
+                Text("OpenRouter, Gemini, or Groq can power the planner. Two or more gives automatic failover.", color = ForgeMuted, fontSize = 12.sp)
+                Spacer(Modifier.height(10.dp))
+                Button(
+                    onClick = { context.startActivity(Intent(context, IntegrationCenterActivity::class.java)) },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = ForgeAccent, contentColor = Color.Black)
+                ) { Text("Open Integration Center", fontWeight = FontWeight.Bold) }
+            }
+        } else {
+            Button(
+                onClick = {
+                    busy = true
+                    error = null
+                    plan = null
+                    Thread {
+                        val result = runCatching { AiRouter.planBest(prompt, vault) }
+                        Handler(Looper.getMainLooper()).post {
+                            busy = false
+                            result.onSuccess { plan = it }.onFailure { error = it.message }
+                        }
+                    }.start()
+                },
+                enabled = !busy && prompt.isNotBlank(),
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = ForgeAccent, contentColor = Color.Black)
+            ) {
+                Text(if (busy) "AI is planning…" else "Plan with best free AI", fontWeight = FontWeight.Bold, modifier = Modifier.padding(6.dp))
+            }
+        }
+
+        error?.let {
+            Spacer(Modifier.height(10.dp))
+            Text(it, color = Color(0xFFFF9D9D), fontSize = 12.sp)
+        }
+
+        plan?.let {
+            Spacer(Modifier.height(20.dp))
+            ChangeContract(it, onPreview)
+        }
+
         Spacer(Modifier.height(22.dp))
-        if (planned) ChangeContract(prompt, onPreview) else StarterIdeas()
-        Spacer(Modifier.height(22.dp))
-        AiTeamCard()
+        AiTeamCard(vault)
     }
 }
 
 @Composable
-private fun StarterIdeas() {
-    SectionTitle("STARTER IDEAS")
+private fun ChangeContract(plan: AiPlan, onPreview: () -> Unit) {
+    SectionTitle("AI CHANGE CONTRACT")
     ForgeCardBlock {
-        Idea("Paycheck checker", "Track hours, overtime and expected pay")
-        HorizontalDivider(color = ForgeLine)
-        Idea("Client photo app", "Before/after photos with customer history")
-        HorizontalDivider(color = ForgeLine)
-        Idea("Local inventory", "Scan items and track what's in stock")
-    }
-}
-
-@Composable
-private fun Idea(title: String, body: String) {
-    Column(Modifier.padding(vertical = 12.dp)) {
-        Text(title, color = ForgeText, fontWeight = FontWeight.SemiBold)
-        Text(body, color = ForgeMuted, fontSize = 13.sp)
-    }
-}
-
-@Composable
-private fun ChangeContract(prompt: String, onPreview: () -> Unit) {
-    SectionTitle("CHANGE CONTRACT")
-    ForgeCardBlock {
-        Text("PocketForge understood:", color = ForgeMuted, fontSize = 12.sp)
-        Spacer(Modifier.height(6.dp))
-        Text(prompt, color = ForgeText, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.height(18.dp))
-        ContractRow("Scope", "Requested app/change only")
-        ContractRow("Protected", "Unrelated screens and working behavior")
-        ContractRow("Verify", "Compile + checks before saving")
-        Spacer(Modifier.height(12.dp))
+        ContractRow("AI", plan.provider)
+        ContractRow("Summary", plan.summary)
+        ContractRow("Scope", plan.scope)
+        ContractRow("Protect", plan.protected)
+        ContractRow("Verify", plan.verify)
+        Spacer(Modifier.height(8.dp))
+        Text(plan.implementationNotes, color = ForgeMuted, fontSize = 12.sp)
+        Spacer(Modifier.height(14.dp))
         Button(
             onClick = onPreview,
             modifier = Modifier.fillMaxWidth(),
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF20262F), contentColor = ForgeText)
-        ) { Text("Build & open full preview") }
+        ) { Text("Open full app preview") }
+        Spacer(Modifier.height(7.dp))
+        Text("Current beta: planning is live. Automatic repository editing from this contract is the next agent layer.", color = ForgeMuted, fontSize = 10.sp)
     }
 }
 
 @Composable
-private fun AiTeamCard() {
-    SectionTitle("AI TEAM · FREE-FIRST")
+private fun AiTeamCard(vault: SecretVault) {
+    SectionTitle("AI TEAM · LIVE ROUTER")
     ForgeCardBlock {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("Use the best free model available", color = ForgeText, fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                Text("Models can change without changing the app.", color = ForgeMuted, fontSize = 12.sp)
+                Text("Best connected free model", color = ForgeText, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                Text("Automatic fallback when a provider is unavailable or out of quota.", color = ForgeMuted, fontSize = 12.sp)
             }
             StatusPill("AUTO")
         }
         Spacer(Modifier.height(14.dp))
-        AiRole("Primary coding pool", "OpenRouter Free", "coding + agentic models")
+        ProviderState("Gemini", vault.has(IntegrationKeys.GEMINI), "planner / long-context reasoning")
         HorizontalDivider(color = ForgeLine)
-        AiRole("Planner / second opinion", "Gemini Free", "reasoning + review")
+        ProviderState("OpenRouter Free", vault.has(IntegrationKeys.OPENROUTER), "diverse coding pool")
         HorizontalDivider(color = ForgeLine)
-        AiRole("Verifier", "Build + tests", "does not trust generated code blindly")
-        Spacer(Modifier.height(12.dp))
-        Text("Paid OpenAI or Claude models can become optional upgrades later; the beta should work without forcing a monthly AI bill.", color = ForgeMuted, fontSize = 12.sp)
+        ProviderState("Groq", vault.has(IntegrationKeys.GROQ), "fast repair fallback")
     }
 }
 
 @Composable
-private fun AiRole(role: String, model: String, note: String) {
+private fun ProviderState(name: String, connected: Boolean, note: String) {
     Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(if (connected) "●" else "○", color = if (connected) ForgeAccent else ForgeMuted)
+        Spacer(Modifier.width(9.dp))
         Column(Modifier.weight(1f)) {
-            Text(role, color = ForgeText, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+            Text(name, color = ForgeText, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
             Text(note, color = ForgeMuted, fontSize = 11.sp)
         }
-        Text(model, color = ForgeAccent, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+        Text(if (connected) "CONNECTED" else "ADD KEY", color = if (connected) ForgeAccent else ForgeMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
     }
 }
 
 @Composable
 private fun ContractRow(label: String, value: String) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
-        Text(label, color = ForgeMuted, modifier = Modifier.width(84.dp), fontSize = 13.sp)
+    Column(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+        Text(label.uppercase(), color = ForgeAccent, fontSize = 10.sp, fontWeight = FontWeight.Bold)
         Text(value, color = ForgeText, fontSize = 13.sp)
     }
 }
@@ -255,6 +283,7 @@ private fun ContractRow(label: String, value: String) {
 private fun FullAppPreview(onExit: () -> Unit) {
     var screen by remember { mutableStateOf(DemoScreen.Today) }
     var clockedIn by remember { mutableStateOf(false) }
+
     MaterialTheme(
         colorScheme = darkColorScheme(
             primary = PreviewAccent,
@@ -367,7 +396,7 @@ private fun DemoToday(clockedIn: Boolean, onToggleClock: () -> Unit) {
         Spacer(Modifier.height(18.dp))
         Surface(color = Color(0xFF10261F), shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, Color(0xFF21483B))) {
             Column(Modifier.padding(16.dp)) {
-                Text("✓ Paycheck looks right", color = Color(0xFF7CFFB2), fontWeight = FontWeight.Bold)
+                Text("✓ Paycheck looks right", color = ForgeAccent, fontWeight = FontWeight.Bold)
                 Text("Your recorded hours match the expected gross-pay calculation so far.", color = PreviewMuted, fontSize = 12.sp)
             }
         }
@@ -423,7 +452,7 @@ private fun DemoPayPeriod(period: String, pay: String, hours: String, matched: B
             Spacer(Modifier.height(12.dp))
             Text(
                 if (matched) "✓ Matches expected pay" else "! Review this paycheck",
-                color = if (matched) Color(0xFF7CFFB2) else Color(0xFFFFC66D),
+                color = if (matched) ForgeAccent else ForgeWarn,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold
             )
@@ -441,6 +470,13 @@ private fun DemoSettings() {
         DemoSettingRow("Overtime", "1.5× after 40h")
         DemoSettingRow("Pay frequency", "Weekly")
         DemoSettingRow("Estimated withholding", "12%")
+        Spacer(Modifier.height(18.dp))
+        Surface(color = PreviewCard, shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, PreviewLine)) {
+            Column(Modifier.padding(16.dp)) {
+                Text("Interactive preview", color = PreviewText, fontWeight = FontWeight.Bold)
+                Text("Generated projects will use this full-screen preview surface instead of a tiny mock card.", color = PreviewMuted, fontSize = 12.sp)
+            }
+        }
     }
 }
 
@@ -456,22 +492,23 @@ private fun DemoSettingRow(label: String, value: String) {
 @Composable
 private fun ChangesScreen() {
     Page("Changes", "Project history in human language.") {
-        ChangeItem("Created app foundation", "Home screen, navigation and local storage", "Saved")
-        ChangeItem("Added full-screen preview", "Interactive app screens replace the old preview card", "Saved")
-        ChangeItem("Switched AI plan to free-first", "Free model router plus independent provider review", "Saved")
-        ChangeItem("Added rolling beta updater", "Green builds can update from inside PocketForge", "Saved")
+        ChangeItem("Connected free AI router", "Gemini, OpenRouter Free and Groq with automatic fallback")
+        ChangeItem("Added Integration Center", "Encrypted provider keys and connection tests")
+        ChangeItem("Added redundant APK builders", "GitHub Actions primary with Codemagic and Bitrise backups")
+        ChangeItem("Kept full-screen previews", "Generated app preview still uses its own navigation and state")
+        ChangeItem("Kept rolling updater", "Only green GitHub builds become installable beta updates")
     }
 }
 
 @Composable
-private fun ChangeItem(title: String, body: String, status: String) {
+private fun ChangeItem(title: String, body: String) {
     ForgeCardBlock {
         Row {
             Column(Modifier.weight(1f)) {
                 Text(title, color = ForgeText, fontWeight = FontWeight.SemiBold)
                 Text(body, color = ForgeMuted, fontSize = 13.sp)
             }
-            Text("✓ $status", color = ForgeAccent, fontSize = 12.sp)
+            Text("✓", color = ForgeAccent)
         }
     }
     Spacer(Modifier.height(10.dp))
@@ -479,44 +516,51 @@ private fun ChangeItem(title: String, body: String, status: String) {
 
 @Composable
 private fun HealthScreen() {
+    val context = LocalContext.current
+    val vault = remember { SecretVault(context) }
     Page("Health", "No compiler gibberish.") {
         HealthRow("App structure", "Working", true)
-        HealthRow("Android build", "Passed", true)
         HealthRow("Full-screen preview", "Enabled", true)
-        HealthRow("Free AI router", "Ready for keys", true)
+        HealthRow("Free AI providers", connectedAiCount(vault).let { if (it == 0) "Connect keys" else "$it connected" }, connectedAiCount(vault) > 0)
+        HealthRow("GitHub verification build", "Tests + lint + APK", true)
+        HealthRow("Backup builders", "Codemagic + Bitrise ready", true)
         Spacer(Modifier.height(16.dp))
         PocketForgeUpdaterCard()
-        Spacer(Modifier.height(16.dp))
-        ForgeCardBlock {
-            Text("AI keys are still not connected in this APK.", color = ForgeText, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(5.dp))
-            Text("Next layer: secure key entry for OpenRouter and Gemini, then real plan → edit → build → verify behavior.", color = ForgeMuted, fontSize = 13.sp)
-        }
+        Spacer(Modifier.height(12.dp))
+        Text("Provider secrets are encrypted at rest with a non-exportable Android Keystore key.", color = ForgeMuted, fontSize = 11.sp)
     }
 }
+
+private fun connectedAiCount(vault: SecretVault): Int = listOf(
+    IntegrationKeys.GEMINI,
+    IntegrationKeys.OPENROUTER,
+    IntegrationKeys.GROQ
+).count(vault::has)
 
 @Composable
 private fun HealthRow(name: String, state: String, healthy: Boolean) {
     Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text("●", color = if (healthy) ForgeAccent else Color(0xFFFFCA68))
+        Text("●", color = if (healthy) ForgeAccent else ForgeWarn)
         Spacer(Modifier.width(10.dp))
         Text(name, color = ForgeText, modifier = Modifier.weight(1f))
-        Text(state, color = ForgeMuted, fontSize = 13.sp)
+        Text(state, color = ForgeMuted, fontSize = 12.sp)
     }
     HorizontalDivider(color = ForgeLine)
 }
 
 @Composable
 private fun PublishScreen() {
-    Page("Publish", "The finish line should be one button, not a tutorial.") {
+    Page("Publish", "A green APK should come from verified code, not an AI promise.") {
         ForgeCardBlock {
-            Text("Android", color = ForgeText, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-            Text("PocketForge · rolling beta", color = ForgeMuted, fontSize = 13.sp)
-            Spacer(Modifier.height(18.dp))
-            StatusLine("Build", "Ready")
-            StatusLine("Signing", "Debug beta")
-            StatusLine("Preview", "Full-screen interactive")
-            StatusLine("Updates", "GitHub green builds")
+            Text("Android build matrix", color = ForgeText, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Spacer(Modifier.height(15.dp))
+            StatusLine("GitHub Actions", "Primary")
+            StatusLine("Codemagic", "Optional verification")
+            StatusLine("Bitrise", "Optional verification")
+            StatusLine("Gate", "Unit tests + lint + APK signature")
+            StatusLine("Updater", "Latest green GitHub release")
+            Spacer(Modifier.height(12.dp))
+            Text("Cross-check mode in Integration Center can intentionally run the same commit on every configured build provider.", color = ForgeMuted, fontSize = 12.sp)
         }
     }
 }
