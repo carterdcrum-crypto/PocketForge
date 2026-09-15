@@ -3,9 +3,12 @@ package com.pocketforge.app
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -24,6 +27,13 @@ private val ForgeAccent = Color(0xFF7CFFB2)
 private val ForgeText = Color(0xFFF2F5F7)
 private val ForgeMuted = Color(0xFF9AA6B2)
 
+private val PreviewBg = Color(0xFF07111E)
+private val PreviewCard = Color(0xFF0F1C2B)
+private val PreviewLine = Color(0xFF203249)
+private val PreviewAccent = Color(0xFF5CE1E6)
+private val PreviewText = Color(0xFFF5FAFF)
+private val PreviewMuted = Color(0xFF93A8BE)
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -33,6 +43,10 @@ class MainActivity : ComponentActivity() {
 
 enum class ForgeTab(val label: String) {
     Build("Build"), Preview("Preview"), Changes("Changes"), Health("Health"), Publish("Publish")
+}
+
+enum class DemoScreen(val label: String, val glyph: String) {
+    Today("Today", "⌂"), History("History", "≡"), Settings("Settings", "⚙")
 }
 
 @Composable
@@ -50,23 +64,27 @@ fun PocketForgeApp() {
     ) {
         Scaffold(
             containerColor = ForgeBg,
-            topBar = { ForgeTopBar() },
+            topBar = {
+                if (tab != ForgeTab.Preview) ForgeTopBar()
+            },
             bottomBar = {
-                NavigationBar(containerColor = Color(0xFF0E1117)) {
-                    ForgeTab.entries.forEach { item ->
-                        NavigationBarItem(
-                            selected = tab == item,
-                            onClick = { tab = item },
-                            icon = { Text(tabGlyph(item), fontSize = 17.sp) },
-                            label = { Text(item.label, fontSize = 10.sp) },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = ForgeAccent,
-                                selectedTextColor = ForgeAccent,
-                                indicatorColor = Color(0xFF183326),
-                                unselectedIconColor = ForgeMuted,
-                                unselectedTextColor = ForgeMuted
+                if (tab != ForgeTab.Preview) {
+                    NavigationBar(containerColor = Color(0xFF0E1117)) {
+                        ForgeTab.entries.forEach { item ->
+                            NavigationBarItem(
+                                selected = tab == item,
+                                onClick = { tab = item },
+                                icon = { Text(tabGlyph(item), fontSize = 17.sp) },
+                                label = { Text(item.label, fontSize = 10.sp) },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = ForgeAccent,
+                                    selectedTextColor = ForgeAccent,
+                                    indicatorColor = Color(0xFF183326),
+                                    unselectedIconColor = ForgeMuted,
+                                    unselectedTextColor = ForgeMuted
+                                )
                             )
-                        )
+                        }
                     }
                 }
             }
@@ -77,8 +95,8 @@ fun PocketForgeApp() {
                     .fillMaxSize()
             ) {
                 when (tab) {
-                    ForgeTab.Build -> BuildScreen()
-                    ForgeTab.Preview -> PreviewScreen()
+                    ForgeTab.Build -> BuildScreen(onPreview = { tab = ForgeTab.Preview })
+                    ForgeTab.Preview -> FullAppPreview(onExit = { tab = ForgeTab.Build })
                     ForgeTab.Changes -> ChangesScreen()
                     ForgeTab.Health -> HealthScreen()
                     ForgeTab.Publish -> PublishScreen()
@@ -125,7 +143,7 @@ private fun ForgeTopBar() {
 }
 
 @Composable
-private fun BuildScreen() {
+private fun BuildScreen(onPreview: () -> Unit) {
     var prompt by remember { mutableStateOf("Make me an app that tracks my work hours and tells me what my paycheck should be.") }
     var planned by remember { mutableStateOf(false) }
     Column(
@@ -165,7 +183,9 @@ private fun BuildScreen() {
             Text("Plan this build", fontWeight = FontWeight.Bold, modifier = Modifier.padding(6.dp))
         }
         Spacer(Modifier.height(22.dp))
-        if (planned) ChangeContract(prompt) else StarterIdeas()
+        if (planned) ChangeContract(prompt, onPreview) else StarterIdeas()
+        Spacer(Modifier.height(22.dp))
+        AiTeamCard()
     }
 }
 
@@ -190,7 +210,7 @@ private fun Idea(title: String, body: String) {
 }
 
 @Composable
-private fun ChangeContract(prompt: String) {
+private fun ChangeContract(prompt: String, onPreview: () -> Unit) {
     SectionTitle("CHANGE CONTRACT")
     ForgeCardBlock {
         Text("PocketForge understood:", color = ForgeMuted, fontSize = 12.sp)
@@ -203,10 +223,45 @@ private fun ChangeContract(prompt: String) {
         ContractRow("Verify", "Compile + smoke checks before saving")
         Spacer(Modifier.height(12.dp))
         Button(
-            onClick = { },
+            onClick = onPreview,
             modifier = Modifier.fillMaxWidth(),
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF20262F), contentColor = ForgeText)
-        ) { Text("Build from this plan") }
+        ) { Text("Build & open full preview") }
+    }
+}
+
+@Composable
+private fun AiTeamCard() {
+    SectionTitle("AI TEAM · AUTO ROUTING")
+    ForgeCardBlock {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Best model for each job", color = ForgeText, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                Text("PocketForge routes work instead of locking you to one AI.", color = ForgeMuted, fontSize = 12.sp)
+            }
+            StatusPill("AUTO")
+        }
+        Spacer(Modifier.height(16.dp))
+        AiRole("Lead architect", "GPT-6 Astra", "planning + hard reasoning")
+        HorizontalDivider(color = ForgeLine)
+        AiRole("Primary builder", "Claude Opus 5", "software engineering")
+        HorizontalDivider(color = ForgeLine)
+        AiRole("Fast iteration", "Gemini 3.5 Flash", "quick coding + agent tasks")
+        HorizontalDivider(color = ForgeLine)
+        AiRole("Independent verifier", "GPT-5.3-Codex", "code review + repair")
+        Spacer(Modifier.height(12.dp))
+        Text("For cheap/simple changes, Auto can use a faster model. Expensive frontier models are reserved for work that actually needs them.", color = ForgeMuted, fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun AiRole(role: String, model: String, note: String) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(role, color = ForgeText, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+            Text(note, color = ForgeMuted, fontSize = 11.sp)
+        }
+        Text(model, color = ForgeAccent, fontWeight = FontWeight.Bold, fontSize = 12.sp)
     }
 }
 
@@ -219,36 +274,238 @@ private fun ContractRow(label: String, value: String) {
 }
 
 @Composable
-private fun PreviewScreen() {
-    Page("Preview", "See the app, not the code.") {
-        ForgeCardBlock {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(44.dp).background(Color(0xFF223148), RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) {
-                    Text("$", fontSize = 21.sp, fontWeight = FontWeight.Bold)
+private fun FullAppPreview(onExit: () -> Unit) {
+    var screen by remember { mutableStateOf(DemoScreen.Today) }
+    var clockedIn by remember { mutableStateOf(false) }
+
+    MaterialTheme(
+        colorScheme = darkColorScheme(
+            primary = PreviewAccent,
+            background = PreviewBg,
+            surface = PreviewCard,
+            onPrimary = Color(0xFF001719),
+            onBackground = PreviewText,
+            onSurface = PreviewText
+        )
+    ) {
+        Box(Modifier.fillMaxSize().background(PreviewBg)) {
+            Scaffold(
+                containerColor = PreviewBg,
+                topBar = { DemoTopBar() },
+                bottomBar = {
+                    NavigationBar(containerColor = Color(0xFF091522)) {
+                        DemoScreen.entries.forEach { item ->
+                            NavigationBarItem(
+                                selected = screen == item,
+                                onClick = { screen = item },
+                                icon = { Text(item.glyph, fontSize = 18.sp) },
+                                label = { Text(item.label, fontSize = 10.sp) },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = PreviewAccent,
+                                    selectedTextColor = PreviewAccent,
+                                    indicatorColor = Color(0xFF123B43),
+                                    unselectedIconColor = PreviewMuted,
+                                    unselectedTextColor = PreviewMuted
+                                )
+                            )
+                        }
+                    }
                 }
-                Spacer(Modifier.width(12.dp))
-                Column {
-                    Text("Paycheck Check", color = ForgeText, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                    Text("Generated app preview", color = ForgeMuted, fontSize = 12.sp)
+            ) { inner ->
+                Box(Modifier.padding(inner).fillMaxSize()) {
+                    when (screen) {
+                        DemoScreen.Today -> DemoToday(clockedIn = clockedIn, onToggleClock = { clockedIn = !clockedIn })
+                        DemoScreen.History -> DemoHistory()
+                        DemoScreen.Settings -> DemoSettings()
+                    }
                 }
             }
-            Spacer(Modifier.height(24.dp))
-            Text("THIS WEEK", color = ForgeMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-            Text("$684.50", color = ForgeText, fontSize = 38.sp, fontWeight = FontWeight.Black)
-            Text("Estimated gross pay", color = ForgeMuted)
-            Spacer(Modifier.height(20.dp))
-            Button(onClick = {}, modifier = Modifier.fillMaxWidth()) { Text("Clock in") }
+
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(start = 10.dp, top = 8.dp)
+                    .clickable(onClick = onExit),
+                color = Color(0xE60A0C10),
+                shape = RoundedCornerShape(100.dp),
+                border = BorderStroke(1.dp, ForgeLine)
+            ) {
+                Text("‹ PocketForge", color = ForgeAccent, fontWeight = FontWeight.Bold, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp))
+            }
         }
-        Spacer(Modifier.height(14.dp))
-        Text("This is the product philosophy: users manipulate the result, while PocketForge manages the implementation underneath.", color = ForgeMuted, fontSize = 13.sp)
     }
+}
+
+@Composable
+private fun DemoTopBar() {
+    Surface(color = PreviewBg) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 16.dp, top = 48.dp, bottom = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Paycheck Check", color = PreviewText, fontWeight = FontWeight.Black, fontSize = 21.sp)
+                Text("Your work. Your numbers.", color = PreviewMuted, fontSize = 11.sp)
+            }
+            Surface(color = Color(0xFF123B43), shape = CircleShape) {
+                Text("$", color = PreviewAccent, fontWeight = FontWeight.Black, fontSize = 18.sp, modifier = Modifier.padding(horizontal = 13.dp, vertical = 8.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun DemoToday(clockedIn: Boolean, onToggleClock: () -> Unit) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 18.dp, vertical = 10.dp)
+    ) {
+        Text("THIS WEEK", color = PreviewMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
+        Spacer(Modifier.height(6.dp))
+        Text("$684.50", color = PreviewText, fontSize = 43.sp, fontWeight = FontWeight.Black)
+        Text("Estimated gross pay", color = PreviewMuted, fontSize = 13.sp)
+        Spacer(Modifier.height(20.dp))
+
+        Surface(color = PreviewCard, shape = RoundedCornerShape(22.dp), border = BorderStroke(1.dp, PreviewLine)) {
+            Column(Modifier.fillMaxWidth().padding(18.dp)) {
+                Row(Modifier.fillMaxWidth()) {
+                    DemoMetric("38h 30m", "Hours", Modifier.weight(1f))
+                    DemoMetric("$17.00", "Rate", Modifier.weight(1f))
+                    DemoMetric("2h 30m", "Overtime", Modifier.weight(1f))
+                }
+                Spacer(Modifier.height(18.dp))
+                Button(
+                    onClick = onToggleClock,
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (clockedIn) Color(0xFFFF7676) else PreviewAccent,
+                        contentColor = Color(0xFF001719)
+                    )
+                ) {
+                    Text(if (clockedIn) "Clock out" else "Clock in", fontWeight = FontWeight.Black, fontSize = 16.sp)
+                }
+                if (clockedIn) {
+                    Spacer(Modifier.height(10.dp))
+                    Text("● Shift running · started just now", color = PreviewAccent, fontSize = 12.sp)
+                }
+            }
+        }
+
+        Spacer(Modifier.height(18.dp))
+        Text("TODAY", color = PreviewMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
+        Spacer(Modifier.height(8.dp))
+        DemoShift("8:02 AM – 4:31 PM", "8h 29m", "$144.22")
+        Spacer(Modifier.height(10.dp))
+        DemoShift("6:10 PM – 8:05 PM", "1h 55m", "$32.58")
+        Spacer(Modifier.height(18.dp))
+        Surface(color = Color(0xFF10261F), shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, Color(0xFF21483B))) {
+            Column(Modifier.padding(16.dp)) {
+                Text("✓ Paycheck looks right", color = Color(0xFF7CFFB2), fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(4.dp))
+                Text("Your recorded hours match the expected gross-pay calculation so far.", color = PreviewMuted, fontSize = 12.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun DemoMetric(value: String, label: String, modifier: Modifier = Modifier) {
+    Column(modifier) {
+        Text(value, color = PreviewText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+        Text(label, color = PreviewMuted, fontSize = 11.sp)
+    }
+}
+
+@Composable
+private fun DemoShift(time: String, duration: String, pay: String) {
+    Surface(color = PreviewCard, shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, PreviewLine)) {
+        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(time, color = PreviewText, fontWeight = FontWeight.SemiBold)
+                Text(duration, color = PreviewMuted, fontSize = 12.sp)
+            }
+            Text(pay, color = PreviewAccent, fontWeight = FontWeight.Black, fontSize = 18.sp)
+        }
+    }
+}
+
+@Composable
+private fun DemoHistory() {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp)) {
+        Text("Pay history", color = PreviewText, fontWeight = FontWeight.Black, fontSize = 28.sp)
+        Text("Compare what you worked with what you should be paid.", color = PreviewMuted)
+        Spacer(Modifier.height(20.dp))
+        DemoPayPeriod("Sep 7 – Sep 13", "$684.50", "40h 00m", true)
+        Spacer(Modifier.height(12.dp))
+        DemoPayPeriod("Aug 31 – Sep 6", "$631.13", "36h 45m", true)
+        Spacer(Modifier.height(12.dp))
+        DemoPayPeriod("Aug 24 – Aug 30", "$712.88", "41h 10m", false)
+    }
+}
+
+@Composable
+private fun DemoPayPeriod(period: String, pay: String, hours: String, matched: Boolean) {
+    Surface(color = PreviewCard, shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, PreviewLine)) {
+        Column(Modifier.fillMaxWidth().padding(17.dp)) {
+            Row(Modifier.fillMaxWidth()) {
+                Column(Modifier.weight(1f)) {
+                    Text(period, color = PreviewText, fontWeight = FontWeight.Bold)
+                    Text(hours, color = PreviewMuted, fontSize = 12.sp)
+                }
+                Text(pay, color = PreviewText, fontWeight = FontWeight.Black, fontSize = 20.sp)
+            }
+            Spacer(Modifier.height(12.dp))
+            Text(
+                if (matched) "✓ Matches expected pay" else "! Review this paycheck",
+                color = if (matched) Color(0xFF7CFFB2) else Color(0xFFFFC66D),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+@Composable
+private fun DemoSettings() {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp)) {
+        Text("Settings", color = PreviewText, fontWeight = FontWeight.Black, fontSize = 28.sp)
+        Text("Make the calculator match your real job.", color = PreviewMuted)
+        Spacer(Modifier.height(22.dp))
+        DemoSettingRow("Hourly rate", "$17.00")
+        DemoSettingRow("Overtime", "1.5× after 40h")
+        DemoSettingRow("Pay frequency", "Weekly")
+        DemoSettingRow("Estimated withholding", "12%")
+        Spacer(Modifier.height(20.dp))
+        Surface(color = PreviewCard, shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, PreviewLine)) {
+            Column(Modifier.padding(16.dp)) {
+                Text("Local-first", color = PreviewText, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(4.dp))
+                Text("Your work history stays on this device in this demo.", color = PreviewMuted, fontSize = 12.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun DemoSettingRow(label: String, value: String) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, color = PreviewText, modifier = Modifier.weight(1f))
+        Text(value, color = PreviewAccent, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+    }
+    HorizontalDivider(color = PreviewLine)
 }
 
 @Composable
 private fun ChangesScreen() {
     Page("Changes", "Project history in human language.") {
         ChangeItem("Created app foundation", "Home screen, navigation and local storage", "Saved")
-        ChangeItem("Added paycheck estimate", "Hourly pay and overtime calculation", "Saved")
+        ChangeItem("Added full-screen preview", "Interactive app screens replace the old preview card", "Saved")
+        ChangeItem("Configured AI router", "Frontier models assigned by role and complexity", "Saved")
         ChangeItem("Protected project rules", "AI change contract enabled", "Saved")
     }
 }
@@ -273,13 +530,14 @@ private fun HealthScreen() {
     Page("Health", "No compiler gibberish.") {
         HealthRow("App structure", "Working", true)
         HealthRow("Android build", "Passed", true)
-        HealthRow("Smoke checks", "Passed", true)
-        HealthRow("AI provider", "Not connected", false)
+        HealthRow("Full-screen preview", "Enabled", true)
+        HealthRow("AI model router", "Configured", true)
+        HealthRow("Provider API keys", "Not connected", false)
         Spacer(Modifier.height(12.dp))
         ForgeCardBlock {
-            Text("Everything needed for this preview is healthy.", color = ForgeText, fontWeight = FontWeight.SemiBold)
+            Text("The AI team is designed, but this preview does not send requests to paid model APIs yet.", color = ForgeText, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(5.dp))
-            Text("When something fails, PocketForge will translate the technical error into plain English and offer the safest repair.", color = ForgeMuted, fontSize = 13.sp)
+            Text("That keeps this APK honest: the next backend layer will connect provider keys, usage limits, model routing and build repair.", color = ForgeMuted, fontSize = 13.sp)
         }
     }
 }
@@ -287,7 +545,7 @@ private fun HealthScreen() {
 @Composable
 private fun HealthRow(name: String, state: String, healthy: Boolean) {
     Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(if (healthy) "●" else "●", color = if (healthy) ForgeAccent else Color(0xFFFFCA68))
+        Text("●", color = if (healthy) ForgeAccent else Color(0xFFFFCA68))
         Spacer(Modifier.width(10.dp))
         Text(name, color = ForgeText, modifier = Modifier.weight(1f))
         Text(state, color = ForgeMuted, fontSize = 13.sp)
@@ -300,10 +558,11 @@ private fun PublishScreen() {
     Page("Publish", "The finish line should be one button, not a tutorial.") {
         ForgeCardBlock {
             Text("Android", color = ForgeText, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-            Text("PocketForge Preview · 0.1.0", color = ForgeMuted, fontSize = 13.sp)
+            Text("PocketForge Preview · 0.2.0", color = ForgeMuted, fontSize = 13.sp)
             Spacer(Modifier.height(18.dp))
             StatusLine("Build", "Ready")
             StatusLine("Signing", "Debug preview")
+            StatusLine("Preview", "Full-screen interactive")
             StatusLine("APK", "Available from GitHub build")
             Spacer(Modifier.height(18.dp))
             Button(onClick = {}, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = ForgeAccent, contentColor = Color.Black)) {
@@ -343,7 +602,7 @@ private fun ForgeCardBlock(content: @Composable ColumnScope.() -> Unit) {
         modifier = Modifier.fillMaxWidth(),
         color = ForgeCard,
         shape = RoundedCornerShape(18.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, ForgeLine)
+        border = BorderStroke(1.dp, ForgeLine)
     ) {
         Column(Modifier.padding(16.dp), content = content)
     }
