@@ -14,10 +14,7 @@ import android.provider.Settings
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -98,8 +95,22 @@ fun PocketForgeUpdaterCard() {
                     fontWeight = FontWeight.Bold
                 )
             }
+
             Spacer(Modifier.height(8.dp))
-            Text("Android will show its normal install/update confirmation. The beta updater never installs silently.", color = UpdaterMuted, fontSize = 11.sp)
+            OutlinedButton(
+                onClick = { context.startActivity(Intent(context, IntegrationCenterActivity::class.java)) },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Text("AI & build connectors")
+            }
+
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Android will show its normal install/update confirmation. The beta updater never installs silently.",
+                color = UpdaterMuted,
+                fontSize = 11.sp
+            )
         }
     }
 }
@@ -118,9 +129,7 @@ private object PocketForgeUpdater {
                     setRequestProperty("User-Agent", "PocketForge-Android")
                 }
                 try {
-                    if (connection.responseCode !in 200..299) {
-                        error("GitHub returned ${connection.responseCode}")
-                    }
+                    if (connection.responseCode !in 200..299) error("GitHub returned ${connection.responseCode}")
                     val body = connection.inputStream.bufferedReader().use { it.readText() }
                     val releases = JSONArray(body)
                     if (releases.length() == 0) return@runCatching null
@@ -135,8 +144,7 @@ private object PocketForgeUpdater {
                     var apkUrl: String? = null
                     for (index in 0 until assets.length()) {
                         val asset = assets.getJSONObject(index)
-                        val name = asset.optString("name")
-                        if (name.endsWith(".apk", ignoreCase = true)) {
+                        if (asset.optString("name").endsWith(".apk", ignoreCase = true)) {
                             apkUrl = asset.optString("browser_download_url")
                             break
                         }
@@ -154,11 +162,12 @@ private object PocketForgeUpdater {
     fun installUpdate(context: Context, update: AvailableUpdate, onStatus: (String) -> Unit) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !context.packageManager.canRequestPackageInstalls()) {
             onStatus("Allow PocketForge to install updates once, then return and tap Update PocketForge again.")
-            val intent = Intent(
-                Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                Uri.parse("package:${context.packageName}")
-            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            context.startActivity(intent)
+            context.startActivity(
+                Intent(
+                    Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:${context.packageName}")
+                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
             return
         }
 
@@ -168,7 +177,11 @@ private object PocketForgeUpdater {
             .setDescription("Downloading the newest green beta build")
             .setMimeType("application/vnd.android.package-archive")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, "PocketForge-build-${update.buildNumber}.apk")
+            .setDestinationInExternalFilesDir(
+                context,
+                Environment.DIRECTORY_DOWNLOADS,
+                "PocketForge-build-${update.buildNumber}.apk"
+            )
 
         val downloadId = manager.enqueue(request)
         onStatus("Downloading build ${update.buildNumber}…")
@@ -183,12 +196,13 @@ private object PocketForgeUpdater {
                     return
                 }
                 onStatus("Download complete. Opening Android installer…")
-                val installIntent = Intent(Intent.ACTION_VIEW).apply {
-                    setDataAndType(apkUri, "application/vnd.android.package-archive")
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                context.startActivity(installIntent)
+                context.startActivity(
+                    Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(apkUri, "application/vnd.android.package-archive")
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                )
             }
         }
 
