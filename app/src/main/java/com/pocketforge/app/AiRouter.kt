@@ -36,6 +36,12 @@ Find missing requirements, risky assumptions, regressions, security/privacy issu
 Return concise plain text. Do not praise the proposal. Focus on concrete corrections.
 """
 
+    private const val STUDIO_SYSTEM = """
+You are PocketForge's no-code app designer. Turn the user's plain-English idea into a small, useful, offline-first app design.
+Return JSON only with this exact shape: {"schemaVersion":1,"name":"...","tagline":"...","accent":"#RRGGBB","dark":true,"screens":[{"id":"lowercase_id","title":"Short title","type":"list|checklist|ledger|calculator|info","description":"...","fields":[{"id":"lowercase_id","label":"...","type":"text|number|date|multiline","required":true}],"operation":"sum|product|difference|ratio","unit":"$","content":"..."}]}
+Use 1–4 screens and keep it practical for a beginner. Use a ledger for money entries, checklist for tasks, calculator only with number fields, list for records, and info for instructions. No accounts, network services, fake data, or unsupported features. Keep names and labels short.
+"""
+
     fun configuredProviders(vault: SecretVault): List<FreeAiProvider> = buildList {
         if (vault.has(IntegrationKeys.GEMINI)) add(FreeAiProvider.GEMINI)
         if (vault.has(IntegrationKeys.OPENROUTER)) add(FreeAiProvider.OPENROUTER)
@@ -45,6 +51,11 @@ Return concise plain text. Do not praise the proposal. Focus on concrete correct
     fun planBest(prompt: String, vault: SecretVault): AiPlan {
         val routed = askBest(PLAN_SYSTEM.trim(), prompt, vault, expectJson = true)
         return normalize(routed.provider, routed.text)
+    }
+
+    fun generateStudioSpec(prompt: String, vault: SecretVault): StudioSpec {
+        val routed = askBest(STUDIO_SYSTEM.trim(), prompt, vault, expectJson = true)
+        return StudioSpec.parse(routed.text)
     }
 
     /**

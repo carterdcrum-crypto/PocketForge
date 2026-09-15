@@ -25,5 +25,8 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity android:name=".StudioHomeActivity" android:exported="false" />
+        <activity android:name=".StudioEditorActivity" android:exported="false" />
+        <activity android:name=".AdvancedWorkspaceActivity" android:exported="false" />
     </application>
 </manifest>

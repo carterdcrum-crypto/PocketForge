@@ -1,0 +1,7 @@
+.gradle/
+.pocketforge-gradle/
+**/build/
+local.properties
+*.jks
+*.keystore
+.idea/
