@@ -1,0 +1,21 @@
+format_version: '26'
+default_step_lib_source: https://github.com/bitrise-io/bitrise-steplib.git
+project_type: android
+
+workflows:
+  primary:
+    steps:
+      - git-clone: {}
+      - script:
+          title: Test, lint, build and verify
+          inputs:
+            - content: |-
+                bash ci/build-android.sh
+                mkdir -p "$BITRISE_DEPLOY_DIR"
+                cp app/build/outputs/apk/debug/app-debug.apk "$BITRISE_DEPLOY_DIR/"
+                cp app/build/outputs/apk/debug/app-debug.apk.sha256 "$BITRISE_DEPLOY_DIR/"
+      - deploy-to-bitrise-io: {}
+
+trigger_map:
+  - push_branch: main
+    workflow: primary
