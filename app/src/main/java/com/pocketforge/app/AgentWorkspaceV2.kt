@@ -45,8 +45,14 @@ private val PfBad = Color(0xFFFF8A8A)
 enum class ForgeMode(val label: String, val shortDescription: String) {
     AUTO("Auto", "PocketForge chooses the cheapest capable team."),
     SWARM("Swarm", "Multiple AIs independently plan, challenge, and reconcile."),
+    AUTOPILOT("Autopilot", "Plan, edit a protected branch, build, repair, and verify."),
     BUILD("Build", "Route the current project through the build system.")
 }
+
+private data class GoalOutcome(
+    val plan: AiPlan,
+    val execution: RepoExecutionResult? = null
+)
 
 @Composable
 fun AgentWorkspaceV2App() {
@@ -110,7 +116,7 @@ fun AgentWorkspaceV2App() {
         }
     }
 
-    fun saveBrain(goal: String, plan: AiPlan, modeUsed: ForgeMode) {
+    fun saveBrain(goal: String, plan: AiPlan, modeUsed: ForgeMode, execution: RepoExecutionResult? = null) {
         store.updateBrain(
             project.id,
             buildString {
@@ -122,16 +128,24 @@ fun AgentWorkspaceV2App() {
                 appendLine("Protected: ${plan.protected}")
                 appendLine("Verification: ${plan.verify}")
                 appendLine("Implementation notes: ${plan.implementationNotes}")
+                execution?.let {
+                    appendLine("Autopilot branch: ${it.branch}")
+                    appendLine("Changed files: ${it.changedFiles.joinToString()}")
+                    appendLine("Build conclusion: ${it.buildConclusion}")
+                    appendLine("Verified: ${it.verified}")
+                }
             }
         )
         refreshProject(project.id)
     }
 
-    fun runBuild(crossCheck: Boolean) {
+    fun runBuild(crossCheck: Boolean, announce: Boolean = true) {
         if (busy) return
         busy = true
         steps.clear()
-        addMessage("user", if (crossCheck) "Cross-check this project on every connected APK builder." else "Build this project with the best connected APK builder.")
+        if (announce) {
+            addMessage("user", if (crossCheck) "Cross-check this project on every connected APK builder." else "Build this project with the best connected APK builder.")
+        }
         updateStep(
             AgentStep(
                 id = "build-route",
@@ -171,7 +185,7 @@ fun AgentWorkspaceV2App() {
         steps.clear()
 
         if (mode == ForgeMode.BUILD) {
-            runBuild(crossCheck = false)
+            runBuild(crossCheck = false, announce = false)
             return
         }
 
@@ -180,46 +194,88 @@ fun AgentWorkspaceV2App() {
             return
         }
 
+        if (mode == ForgeMode.AUTOPILOT && (!vault.has(IntegrationKeys.GITHUB_REPO) || !vault.has(IntegrationKeys.GITHUB_TOKEN))) {
+            addMessage("assistant", "Autopilot needs a bound GitHub repository and a repository token in AI & build connectors. I will never ask you to paste that token into the chat.")
+            return
+        }
+
         busy = true
         updateStep(AgentStep("route", "Router", "Choosing the agent team", "Mode: ${mode.label}. Checking connected free providers and assigning roles.", AgentStepState.WORKING, "Free-first router"))
 
         Thread {
             val result = runCatching {
-                if (mode == ForgeMode.SWARM) {
-                    updateStep(AgentStep("route", "Router", "Swarm assembled", "Multiple providers will create independent views before reconciliation.", AgentStepState.DONE, AiRouter.configuredProviders(vault).joinToString(" · ") { it.label }))
-                    updateStep(AgentStep("swarm", "Swarm", "Independent planning + critique", "Running separate architecture and review passes.", AgentStepState.WORKING, "Multi-model consensus"))
-                    val plan = AiRouter.planConsensus(cleanGoal, vault)
-                    updateStep(AgentStep("swarm", "Swarm", "Consensus contract ready", plan.summary.take(600), AgentStepState.DONE, plan.provider))
-                    updateStep(AgentStep("gate", "Verifier", "Green-build gate prepared", plan.verify, AgentStepState.DONE, "Compiler + CI"))
-                    plan
-                } else {
-                    updateStep(AgentStep("route", "Router", "Team assigned", "Using architect, independent reviewer when available, and lead synthesis.", AgentStepState.DONE, "Auto router"))
-                    val run = AgentOrchestrator.runGoal(cleanGoal, vault, ::updateStep)
-                    run.plan
+                when (mode) {
+                    ForgeMode.SWARM -> {
+                        updateStep(AgentStep("route", "Router", "Swarm assembled", "Multiple providers will create independent views before reconciliation.", AgentStepState.DONE, AiRouter.configuredProviders(vault).joinToString(" · ") { it.label }))
+                        updateStep(AgentStep("swarm", "Swarm", "Independent planning + critique", "Running separate architecture and review passes.", AgentStepState.WORKING, "Multi-model consensus"))
+                        val plan = AiRouter.planConsensus(cleanGoal, vault)
+                        updateStep(AgentStep("swarm", "Swarm", "Consensus contract ready", plan.summary.take(600), AgentStepState.DONE, plan.provider))
+                        updateStep(AgentStep("gate", "Verifier", "Green-build gate prepared", plan.verify, AgentStepState.DONE, "Compiler + CI"))
+                        GoalOutcome(plan)
+                    }
+                    ForgeMode.AUTOPILOT -> {
+                        updateStep(AgentStep("route", "Router", "Autopilot team assembled", "Planning first; repository writes remain isolated to a new PocketForge branch.", AgentStepState.DONE, AiRouter.configuredProviders(vault).joinToString(" · ") { it.label }))
+                        updateStep(AgentStep("autopilot-plan", "Lead", "Creating the execution contract", "Using multi-model consensus when at least two providers are connected.", AgentStepState.WORKING, "Free AI team"))
+                        val plan = if (AiRouter.configuredProviders(vault).size >= 2) {
+                            AiRouter.planConsensus(cleanGoal, vault)
+                        } else {
+                            AgentOrchestrator.runGoal(cleanGoal, vault, ::updateStep).plan
+                        }
+                        updateStep(AgentStep("autopilot-plan", "Lead", "Execution contract approved", plan.summary.take(600), AgentStepState.DONE, plan.provider))
+                        val execution = RepositoryAgent.execute(cleanGoal, plan, vault, ::updateStep)
+                        GoalOutcome(plan, execution)
+                    }
+                    ForgeMode.AUTO -> {
+                        updateStep(AgentStep("route", "Router", "Team assigned", "Using architect, independent reviewer when available, and lead synthesis.", AgentStepState.DONE, "Auto router"))
+                        val run = AgentOrchestrator.runGoal(cleanGoal, vault, ::updateStep)
+                        GoalOutcome(run.plan)
+                    }
+                    ForgeMode.BUILD -> error("Build mode is routed before agent execution.")
                 }
             }
 
             handler.post {
                 busy = false
-                result.onSuccess { plan ->
-                    saveBrain(cleanGoal, plan, mode)
-                    addMessage(
-                        "assistant",
-                        buildString {
-                            appendLine(plan.summary)
-                            appendLine()
-                            appendLine("Scope: ${plan.scope}")
-                            appendLine()
-                            appendLine("Protected: ${plan.protected}")
-                            appendLine()
-                            appendLine("Verification: ${plan.verify}")
-                            appendLine()
-                            append("I have the execution contract. The next autonomy layer will apply this contract to the bound repository, build it, inspect failures, repair the smallest safe set of files, and stop only at a verified APK or a blocker that needs you.")
-                        }
-                    )
+                result.onSuccess { outcome ->
+                    saveBrain(cleanGoal, outcome.plan, mode, outcome.execution)
+                    val execution = outcome.execution
+                    if (execution != null) {
+                        addMessage(
+                            "assistant",
+                            buildString {
+                                appendLine(outcome.plan.summary)
+                                appendLine()
+                                appendLine("Autopilot worked on a protected branch only:")
+                                appendLine(execution.branch)
+                                appendLine()
+                                appendLine("Changed: ${execution.changedFiles.joinToString().ifBlank { "none" }}")
+                                appendLine("Build: ${execution.buildConclusion}")
+                                appendLine("Repair attempts: ${execution.repairAttempts}")
+                                appendLine()
+                                if (execution.verified) {
+                                    append("✓ The branch passed the configured verification build. It has NOT been merged into your green branch automatically.")
+                                } else {
+                                    append("This run is not verified green. I left the default branch untouched and did not pretend the job was complete.")
+                                }
+                            }
+                        )
+                    } else {
+                        addMessage(
+                            "assistant",
+                            buildString {
+                                appendLine(outcome.plan.summary)
+                                appendLine()
+                                appendLine("Scope: ${outcome.plan.scope}")
+                                appendLine()
+                                appendLine("Protected: ${outcome.plan.protected}")
+                                appendLine()
+                                append("Verification: ${outcome.plan.verify}")
+                            }
+                        )
+                    }
                 }.onFailure { error ->
                     updateStep(AgentStep("failed-${System.currentTimeMillis()}", "PocketForge", "Run stopped", error.message ?: "Unknown error", AgentStepState.FAILED))
-                    addMessage("assistant", "I hit a blocker: ${error.message ?: "unknown error"}. I did not mark the job complete or pretend it worked.")
+                    addMessage("assistant", "I hit a blocker: ${error.message ?: "unknown error"}. I did not mark the job complete or change the green branch to hide the failure.")
                 }
             }
         }.start()
@@ -475,7 +531,7 @@ private fun PfEmptyState(modifier: Modifier, providerCount: Int, onPrompt: (Stri
         Spacer(Modifier.height(8.dp))
         PfSuggestion("Inspect my project, challenge the architecture, and find the smartest next move", onPrompt)
         Spacer(Modifier.height(8.dp))
-        PfSuggestion("Design the smallest safe fix, then verify it across every connected builder", onPrompt)
+        PfSuggestion("Use Autopilot to make the smallest safe change and verify the APK", onPrompt)
         Spacer(Modifier.height(14.dp))
         TextButton(onClick = onCapabilities) { Text("See what PocketForge can do", color = PfMuted) }
     }
@@ -654,14 +710,14 @@ private fun PfCapabilitiesDialog(onDismiss: () -> Unit) {
                 }
                 Spacer(Modifier.height(10.dp))
                 PfCapability("LIVE", "Conversation-first workspace", "Chat is the command surface; projects, tools, memory, previews, and builds hang off it.", PfGood)
-                PfCapability("LIVE", "Visible agent work trace", "See architect, reviewer, lead, router, and verifier stages while they are running.", PfGood)
+                PfCapability("LIVE", "Visible agent work trace", "See architect, reviewer, lead, router, repository, repair, and verifier stages while they are running.", PfGood)
                 PfCapability("LIVE", "Free multi-model swarm", "Gemini, OpenRouter free models, and Groq can independently challenge one another before a contract is accepted.", PfGood)
-                PfCapability("LIVE", "Durable project brain", "Important project intent, protected behavior, and verification rules survive across chats.", PfGood)
+                PfCapability("LIVE", "Durable project brain", "Important project intent, protected behavior, branch results, and verification rules survive across chats.", PfGood)
+                PfCapability("LIVE", "Protected repository Autopilot", "Create a checkpoint branch, inspect only relevant files, apply bounded edits, run CI, read real failure logs, repair, and retry without editing the green branch.", PfGood)
                 PfCapability("LIVE", "Multi-builder verification", "GitHub Actions is primary; Codemagic and Bitrise can cross-check the same APK job.", PfGood)
                 PfCapability("LIVE", "Full-screen app preview", "Preview takes over the screen instead of living in a tiny card.", PfGood)
                 PfCapability("LIVE", "Voice prompt capture", "Use Android speech recognition without paying another AI provider.", PfGood)
-                PfCapability("NEXT", "Repository execution agent", "Apply approved contracts on a protected branch, commit exact diffs, build, inspect failures, repair, and retry.", PfWarn)
-                PfCapability("NEXT", "Automatic rollback + snapshots", "Every agent change gets a recoverable checkpoint before it can become the new green state.", PfWarn)
+                PfCapability("NEXT", "Review + merge controls", "Inspect the Autopilot branch, compare exact diffs, then explicitly promote a verified branch to the project's green branch.", PfWarn)
                 PfCapability("NEXT", "Artifact-aware chat", "APK, screenshots, logs, diffs, database schema, and test output become first-class conversation objects.", PfWarn)
                 Spacer(Modifier.height(8.dp))
                 Text("Free models can make the system powerful operationally, but they do not magically become smarter than paid frontier models. PocketForge’s advantage is orchestration, memory, tools, verification, and model diversity.", color = PfMuted, fontSize = 11.sp, lineHeight = 16.sp)
