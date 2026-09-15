@@ -1,0 +1,13 @@
+workflows:
+  android:
+    name: PocketForge Android verification
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    scripts:
+      - name: Test, lint, build and verify
+        script: |
+          export JAVA_HOME=$(/usr/libexec/java_home -v 17)
+          bash ci/build-android.sh
+    artifacts:
+      - app/build/outputs/apk/debug/app-debug.apk
+      - app/build/outputs/apk/debug/app-debug.apk.sha256
