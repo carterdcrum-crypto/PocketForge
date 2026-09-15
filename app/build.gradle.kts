@@ -4,7 +4,11 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-val ciBuildNumber = providers.environmentVariable("GITHUB_RUN_NUMBER").orNull?.toIntOrNull() ?: 1
+val ciBuildNumber = listOf(
+    providers.environmentVariable("GITHUB_RUN_NUMBER").orNull,
+    providers.environmentVariable("BUILD_NUMBER").orNull,
+    providers.environmentVariable("BITRISE_BUILD_NUMBER").orNull
+).firstOrNull { !it.isNullOrBlank() }?.toIntOrNull() ?: 1
 
 android {
     namespace = "com.pocketforge.app"
@@ -15,7 +19,7 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = ciBuildNumber
-        versionName = "0.3.$ciBuildNumber"
+        versionName = "0.4.$ciBuildNumber"
     }
 
     compileOptions {
