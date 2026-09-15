@@ -64,9 +64,7 @@ fun PocketForgeApp() {
     ) {
         Scaffold(
             containerColor = ForgeBg,
-            topBar = {
-                if (tab != ForgeTab.Preview) ForgeTopBar()
-            },
+            topBar = { if (tab != ForgeTab.Preview) ForgeTopBar() },
             bottomBar = {
                 if (tab != ForgeTab.Preview) {
                     NavigationBar(containerColor = Color(0xFF0E1117)) {
@@ -89,11 +87,7 @@ fun PocketForgeApp() {
                 }
             }
         ) { padding ->
-            Box(
-                modifier = Modifier
-                    .padding(padding)
-                    .fillMaxSize()
-            ) {
+            Box(Modifier.padding(padding).fillMaxSize()) {
                 when (tab) {
                     ForgeTab.Build -> BuildScreen(onPreview = { tab = ForgeTab.Preview })
                     ForgeTab.Preview -> FullAppPreview(onExit = { tab = ForgeTab.Build })
@@ -118,26 +112,20 @@ private fun tabGlyph(tab: ForgeTab) = when (tab) {
 private fun ForgeTopBar() {
     Surface(color = ForgeBg) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 18.dp, vertical = 14.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
-                modifier = Modifier
-                    .size(34.dp)
-                    .background(ForgeAccent, RoundedCornerShape(10.dp)),
+                Modifier.size(34.dp).background(ForgeAccent, RoundedCornerShape(10.dp)),
                 contentAlignment = Alignment.Center
-            ) {
-                Text("P", color = Color.Black, fontWeight = FontWeight.Black)
-            }
+            ) { Text("P", color = Color.Black, fontWeight = FontWeight.Black) }
             Spacer(Modifier.width(10.dp))
             Column {
                 Text("PocketForge", color = ForgeText, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 Text("You describe it. It builds it.", color = ForgeMuted, fontSize = 11.sp)
             }
             Spacer(Modifier.weight(1f))
-            StatusPill("READY")
+            StatusPill("BETA")
         }
     }
 }
@@ -147,10 +135,7 @@ private fun BuildScreen(onPreview: () -> Unit) {
     var prompt by remember { mutableStateOf("Make me an app that tracks my work hours and tells me what my paycheck should be.") }
     var planned by remember { mutableStateOf(false) }
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(18.dp)
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp)
     ) {
         Text("What do you want to build?", fontSize = 26.sp, fontWeight = FontWeight.Black, color = ForgeText)
         Spacer(Modifier.height(6.dp))
@@ -159,9 +144,7 @@ private fun BuildScreen(onPreview: () -> Unit) {
         OutlinedTextField(
             value = prompt,
             onValueChange = { prompt = it; planned = false },
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 150.dp),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 150.dp),
             placeholder = { Text("Describe your app or the change you want…") },
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = ForgeAccent,
@@ -179,9 +162,7 @@ private fun BuildScreen(onPreview: () -> Unit) {
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(14.dp),
             colors = ButtonDefaults.buttonColors(containerColor = ForgeAccent, contentColor = Color.Black)
-        ) {
-            Text("Plan this build", fontWeight = FontWeight.Bold, modifier = Modifier.padding(6.dp))
-        }
+        ) { Text("Plan this build", fontWeight = FontWeight.Bold, modifier = Modifier.padding(6.dp)) }
         Spacer(Modifier.height(22.dp))
         if (planned) ChangeContract(prompt, onPreview) else StarterIdeas()
         Spacer(Modifier.height(22.dp))
@@ -217,10 +198,9 @@ private fun ChangeContract(prompt: String, onPreview: () -> Unit) {
         Spacer(Modifier.height(6.dp))
         Text(prompt, color = ForgeText, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(18.dp))
-        ContractRow("Scope", "New app foundation")
-        ContractRow("Allowed", "UI, local data, navigation")
-        ContractRow("Protected", "Anything unrelated to this request")
-        ContractRow("Verify", "Compile + smoke checks before saving")
+        ContractRow("Scope", "Requested app/change only")
+        ContractRow("Protected", "Unrelated screens and working behavior")
+        ContractRow("Verify", "Compile + checks before saving")
         Spacer(Modifier.height(12.dp))
         Button(
             onClick = onPreview,
@@ -232,25 +212,23 @@ private fun ChangeContract(prompt: String, onPreview: () -> Unit) {
 
 @Composable
 private fun AiTeamCard() {
-    SectionTitle("AI TEAM · AUTO ROUTING")
+    SectionTitle("AI TEAM · FREE-FIRST")
     ForgeCardBlock {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("Best model for each job", color = ForgeText, fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                Text("PocketForge routes work instead of locking you to one AI.", color = ForgeMuted, fontSize = 12.sp)
+                Text("Use the best free model available", color = ForgeText, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                Text("Models can change without changing the app.", color = ForgeMuted, fontSize = 12.sp)
             }
             StatusPill("AUTO")
         }
-        Spacer(Modifier.height(16.dp))
-        AiRole("Lead architect", "GPT-6 Astra", "planning + hard reasoning")
+        Spacer(Modifier.height(14.dp))
+        AiRole("Primary coding pool", "OpenRouter Free", "coding + agentic models")
         HorizontalDivider(color = ForgeLine)
-        AiRole("Primary builder", "Claude Opus 5", "software engineering")
+        AiRole("Planner / second opinion", "Gemini Free", "reasoning + review")
         HorizontalDivider(color = ForgeLine)
-        AiRole("Fast iteration", "Gemini 3.5 Flash", "quick coding + agent tasks")
-        HorizontalDivider(color = ForgeLine)
-        AiRole("Independent verifier", "GPT-5.3-Codex", "code review + repair")
+        AiRole("Verifier", "Build + tests", "does not trust generated code blindly")
         Spacer(Modifier.height(12.dp))
-        Text("For cheap/simple changes, Auto can use a faster model. Expensive frontier models are reserved for work that actually needs them.", color = ForgeMuted, fontSize = 12.sp)
+        Text("Paid OpenAI or Claude models can become optional upgrades later; the beta should work without forcing a monthly AI bill.", color = ForgeMuted, fontSize = 12.sp)
     }
 }
 
@@ -277,7 +255,6 @@ private fun ContractRow(label: String, value: String) {
 private fun FullAppPreview(onExit: () -> Unit) {
     var screen by remember { mutableStateOf(DemoScreen.Today) }
     var clockedIn by remember { mutableStateOf(false) }
-
     MaterialTheme(
         colorScheme = darkColorScheme(
             primary = PreviewAccent,
@@ -314,18 +291,14 @@ private fun FullAppPreview(onExit: () -> Unit) {
             ) { inner ->
                 Box(Modifier.padding(inner).fillMaxSize()) {
                     when (screen) {
-                        DemoScreen.Today -> DemoToday(clockedIn = clockedIn, onToggleClock = { clockedIn = !clockedIn })
+                        DemoScreen.Today -> DemoToday(clockedIn) { clockedIn = !clockedIn }
                         DemoScreen.History -> DemoHistory()
                         DemoScreen.Settings -> DemoSettings()
                     }
                 }
             }
-
             Surface(
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(start = 10.dp, top = 8.dp)
-                    .clickable(onClick = onExit),
+                modifier = Modifier.align(Alignment.TopStart).padding(start = 10.dp, top = 8.dp).clickable(onClick = onExit),
                 color = Color(0xE60A0C10),
                 shape = RoundedCornerShape(100.dp),
                 border = BorderStroke(1.dp, ForgeLine)
@@ -340,9 +313,7 @@ private fun FullAppPreview(onExit: () -> Unit) {
 private fun DemoTopBar() {
     Surface(color = PreviewBg) {
         Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(start = 16.dp, end = 16.dp, top = 48.dp, bottom = 14.dp),
+            Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 48.dp, bottom = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(Modifier.weight(1f)) {
@@ -358,18 +329,12 @@ private fun DemoTopBar() {
 
 @Composable
 private fun DemoToday(clockedIn: Boolean, onToggleClock: () -> Unit) {
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 18.dp, vertical = 10.dp)
-    ) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp, vertical = 10.dp)) {
         Text("THIS WEEK", color = PreviewMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
         Spacer(Modifier.height(6.dp))
         Text("$684.50", color = PreviewText, fontSize = 43.sp, fontWeight = FontWeight.Black)
         Text("Estimated gross pay", color = PreviewMuted, fontSize = 13.sp)
         Spacer(Modifier.height(20.dp))
-
         Surface(color = PreviewCard, shape = RoundedCornerShape(22.dp), border = BorderStroke(1.dp, PreviewLine)) {
             Column(Modifier.fillMaxWidth().padding(18.dp)) {
                 Row(Modifier.fillMaxWidth()) {
@@ -386,16 +351,13 @@ private fun DemoToday(clockedIn: Boolean, onToggleClock: () -> Unit) {
                         containerColor = if (clockedIn) Color(0xFFFF7676) else PreviewAccent,
                         contentColor = Color(0xFF001719)
                     )
-                ) {
-                    Text(if (clockedIn) "Clock out" else "Clock in", fontWeight = FontWeight.Black, fontSize = 16.sp)
-                }
+                ) { Text(if (clockedIn) "Clock out" else "Clock in", fontWeight = FontWeight.Black, fontSize = 16.sp) }
                 if (clockedIn) {
                     Spacer(Modifier.height(10.dp))
                     Text("● Shift running · started just now", color = PreviewAccent, fontSize = 12.sp)
                 }
             }
         }
-
         Spacer(Modifier.height(18.dp))
         Text("TODAY", color = PreviewMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
         Spacer(Modifier.height(8.dp))
@@ -406,7 +368,6 @@ private fun DemoToday(clockedIn: Boolean, onToggleClock: () -> Unit) {
         Surface(color = Color(0xFF10261F), shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, Color(0xFF21483B))) {
             Column(Modifier.padding(16.dp)) {
                 Text("✓ Paycheck looks right", color = Color(0xFF7CFFB2), fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(4.dp))
                 Text("Your recorded hours match the expected gross-pay calculation so far.", color = PreviewMuted, fontSize = 12.sp)
             }
         }
@@ -480,14 +441,6 @@ private fun DemoSettings() {
         DemoSettingRow("Overtime", "1.5× after 40h")
         DemoSettingRow("Pay frequency", "Weekly")
         DemoSettingRow("Estimated withholding", "12%")
-        Spacer(Modifier.height(20.dp))
-        Surface(color = PreviewCard, shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, PreviewLine)) {
-            Column(Modifier.padding(16.dp)) {
-                Text("Local-first", color = PreviewText, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(4.dp))
-                Text("Your work history stays on this device in this demo.", color = PreviewMuted, fontSize = 12.sp)
-            }
-        }
     }
 }
 
@@ -505,8 +458,8 @@ private fun ChangesScreen() {
     Page("Changes", "Project history in human language.") {
         ChangeItem("Created app foundation", "Home screen, navigation and local storage", "Saved")
         ChangeItem("Added full-screen preview", "Interactive app screens replace the old preview card", "Saved")
-        ChangeItem("Configured AI router", "Frontier models assigned by role and complexity", "Saved")
-        ChangeItem("Protected project rules", "AI change contract enabled", "Saved")
+        ChangeItem("Switched AI plan to free-first", "Free model router plus independent provider review", "Saved")
+        ChangeItem("Added rolling beta updater", "Green builds can update from inside PocketForge", "Saved")
     }
 }
 
@@ -516,7 +469,6 @@ private fun ChangeItem(title: String, body: String, status: String) {
         Row {
             Column(Modifier.weight(1f)) {
                 Text(title, color = ForgeText, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.height(3.dp))
                 Text(body, color = ForgeMuted, fontSize = 13.sp)
             }
             Text("✓ $status", color = ForgeAccent, fontSize = 12.sp)
@@ -531,13 +483,14 @@ private fun HealthScreen() {
         HealthRow("App structure", "Working", true)
         HealthRow("Android build", "Passed", true)
         HealthRow("Full-screen preview", "Enabled", true)
-        HealthRow("AI model router", "Configured", true)
-        HealthRow("Provider API keys", "Not connected", false)
-        Spacer(Modifier.height(12.dp))
+        HealthRow("Free AI router", "Ready for keys", true)
+        Spacer(Modifier.height(16.dp))
+        PocketForgeUpdaterCard()
+        Spacer(Modifier.height(16.dp))
         ForgeCardBlock {
-            Text("The AI team is designed, but this preview does not send requests to paid model APIs yet.", color = ForgeText, fontWeight = FontWeight.SemiBold)
+            Text("AI keys are still not connected in this APK.", color = ForgeText, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(5.dp))
-            Text("That keeps this APK honest: the next backend layer will connect provider keys, usage limits, model routing and build repair.", color = ForgeMuted, fontSize = 13.sp)
+            Text("Next layer: secure key entry for OpenRouter and Gemini, then real plan → edit → build → verify behavior.", color = ForgeMuted, fontSize = 13.sp)
         }
     }
 }
@@ -558,16 +511,12 @@ private fun PublishScreen() {
     Page("Publish", "The finish line should be one button, not a tutorial.") {
         ForgeCardBlock {
             Text("Android", color = ForgeText, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-            Text("PocketForge Preview · 0.2.0", color = ForgeMuted, fontSize = 13.sp)
+            Text("PocketForge · rolling beta", color = ForgeMuted, fontSize = 13.sp)
             Spacer(Modifier.height(18.dp))
             StatusLine("Build", "Ready")
-            StatusLine("Signing", "Debug preview")
+            StatusLine("Signing", "Debug beta")
             StatusLine("Preview", "Full-screen interactive")
-            StatusLine("APK", "Available from GitHub build")
-            Spacer(Modifier.height(18.dp))
-            Button(onClick = {}, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = ForgeAccent, contentColor = Color.Black)) {
-                Text("Generate APK", fontWeight = FontWeight.Bold)
-            }
+            StatusLine("Updates", "GitHub green builds")
         }
     }
 }
@@ -582,12 +531,7 @@ private fun StatusLine(label: String, value: String) {
 
 @Composable
 private fun Page(title: String, subtitle: String, content: @Composable ColumnScope.() -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(18.dp)
-    ) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp)) {
         Text(title, color = ForgeText, fontWeight = FontWeight.Black, fontSize = 27.sp)
         Spacer(Modifier.height(4.dp))
         Text(subtitle, color = ForgeMuted)
@@ -603,9 +547,7 @@ private fun ForgeCardBlock(content: @Composable ColumnScope.() -> Unit) {
         color = ForgeCard,
         shape = RoundedCornerShape(18.dp),
         border = BorderStroke(1.dp, ForgeLine)
-    ) {
-        Column(Modifier.padding(16.dp), content = content)
-    }
+    ) { Column(Modifier.padding(16.dp), content = content) }
 }
 
 @Composable
