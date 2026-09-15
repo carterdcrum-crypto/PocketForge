@@ -12,6 +12,9 @@
             android:name=".IntegrationCenterActivity"
             android:exported="false" />
         <activity
+            android:name=".GeneratedPreviewActivity"
+            android:exported="false" />
+        <activity
             android:name=".MainActivity"
             android:exported="false" />
         <activity
