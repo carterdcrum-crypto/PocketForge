@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -35,14 +39,16 @@ jobs:
         with:
           gradle-version: '8.10.2'
 
-      - name: Build debug APK
-        run: gradle :app:assembleDebug --stacktrace
+      - name: Test, lint, build and verify APK
+        run: bash ci/build-android.sh
 
-      - name: Upload APK artifact
+      - name: Upload verified APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: PocketForge-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/debug/app-debug.apk.sha256
           if-no-files-found: error
 
       - name: Publish green beta release
@@ -51,8 +57,9 @@ jobs:
         run: |
           gh release create "build-${GITHUB_RUN_NUMBER}" \
             app/build/outputs/apk/debug/app-debug.apk \
+            app/build/outputs/apk/debug/app-debug.apk.sha256 \
             --repo "${GITHUB_REPOSITORY}" \
             --target "${GITHUB_SHA}" \
             --title "PocketForge Build ${GITHUB_RUN_NUMBER}" \
-            --notes "Automated green beta build from main. Use the in-app updater to install this build." \
+            --notes "Green beta: unit tests, Android lint, APK assembly and signature verification passed." \
             --prerelease
