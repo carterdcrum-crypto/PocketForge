@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+
+SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+if [[ -z "$SDK_ROOT" ]]; then
+  if [[ -d "$HOME/Library/Android/sdk" ]]; then
+    SDK_ROOT="$HOME/Library/Android/sdk"
+  else
+    SDK_ROOT="$HOME/Android/Sdk"
+  fi
+fi
+
+if [[ -d "$SDK_ROOT" ]]; then
+  printf 'sdk.dir=%s\n' "$SDK_ROOT" > local.properties
+fi
+
+if [[ -x "./gradlew" ]]; then
+  GRADLE=(./gradlew)
+elif command -v gradle >/dev/null 2>&1; then
+  GRADLE=(gradle)
+else
+  GRADLE_VERSION="8.10.2"
+  CACHE_DIR="$ROOT/.pocketforge-gradle"
+  mkdir -p "$CACHE_DIR"
+  if [[ ! -x "$CACHE_DIR/gradle-$GRADLE_VERSION/bin/gradle" ]]; then
+    curl -fsSL "https://services.gradle.org/distributions/gradle-$GRADLE_VERSION-bin.zip" -o "$CACHE_DIR/gradle.zip"
+    unzip -q -o "$CACHE_DIR/gradle.zip" -d "$CACHE_DIR"
+  fi
+  GRADLE=("$CACHE_DIR/gradle-$GRADLE_VERSION/bin/gradle")
+fi
+
+echo "PocketForge CI: unit tests + lint + APK"
+"${GRADLE[@]}" :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --stacktrace --no-daemon
+
+APK="$ROOT/app/build/outputs/apk/debug/app-debug.apk"
+test -f "$APK"
+
+APKSIGNER=""
+if [[ -d "$SDK_ROOT/build-tools" ]]; then
+  APKSIGNER="$(find "$SDK_ROOT/build-tools" -type f -name apksigner 2>/dev/null | sort | tail -n 1 || true)"
+fi
+if [[ -n "$APKSIGNER" ]]; then
+  "$APKSIGNER" verify --verbose "$APK"
+fi
+
+if command -v sha256sum >/dev/null 2>&1; then
+  sha256sum "$APK" | tee "$APK.sha256"
+else
+  shasum -a 256 "$APK" | tee "$APK.sha256"
+fi
+
+echo "GREEN: $APK"
