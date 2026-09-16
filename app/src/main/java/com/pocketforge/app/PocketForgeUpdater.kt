@@ -40,8 +40,14 @@ private data class AvailableUpdate(
     val apkUrl: String
 )
 
+/**
+ * Beta-only updater surface. ENABLE_SIDELOAD_UPDATER is false in the Play/release build,
+ * letting R8 remove this path from the optimized production artifact.
+ */
 @Composable
 fun PocketForgeUpdaterCard() {
+    if (!BuildConfig.ENABLE_SIDELOAD_UPDATER) return
+
     val context = LocalContext.current
     var status by remember { mutableStateOf("Tap below to check the newest green build.") }
     var update by remember { mutableStateOf<AvailableUpdate?>(null) }
@@ -58,6 +64,7 @@ fun PocketForgeUpdaterCard() {
             Spacer(Modifier.height(5.dp))
             Text(status, color = UpdaterMuted, fontSize = 12.sp)
             Spacer(Modifier.height(14.dp))
+
             Button(
                 onClick = {
                     val ready = update
@@ -119,6 +126,7 @@ private object PocketForgeUpdater {
     private val mainHandler = Handler(Looper.getMainLooper())
 
     fun check(context: Context, callback: (Result<AvailableUpdate?>) -> Unit) {
+        check(BuildConfig.ENABLE_SIDELOAD_UPDATER) { "The sideload updater is disabled in this build." }
         Thread {
             val result = runCatching {
                 val connection = (URL(RELEASES_URL).openConnection() as HttpURLConnection).apply {
@@ -160,6 +168,8 @@ private object PocketForgeUpdater {
     }
 
     fun installUpdate(context: Context, update: AvailableUpdate, onStatus: (String) -> Unit) {
+        check(BuildConfig.ENABLE_SIDELOAD_UPDATER) { "The sideload updater is disabled in this build." }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !context.packageManager.canRequestPackageInstalls()) {
             onStatus("Allow PocketForge to install updates once, then return and tap Update PocketForge again.")
             context.startActivity(
