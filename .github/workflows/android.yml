@@ -49,9 +49,11 @@ jobs:
             echo "POCKETFORGE_BETA_KEYSTORE=$RUNNER_TEMP/pocketforge-beta.p12" >> "$GITHUB_ENV"
             echo "POCKETFORGE_BETA_KEY_PASSWORD=$BETA_KEY_PASSWORD" >> "$GITHUB_ENV"
             echo "POCKETFORGE_BETA_KEY_ALIAS=pocketforge-beta" >> "$GITHUB_ENV"
+            echo "POCKETFORGE_BETA_SIGNING_READY=true" >> "$GITHUB_ENV"
             echo "Stable PocketForge beta signing is enabled."
           else
-            echo "Stable beta signing secrets are not configured yet; CI will use a temporary debug key for this build."
+            echo "POCKETFORGE_BETA_SIGNING_READY=false" >> "$GITHUB_ENV"
+            echo "Stable beta signing secrets are not configured yet. CI will test a temporary debug APK, but it will NOT publish it as an in-app update."
           fi
 
       - name: Test, lint, build and verify APK
@@ -68,6 +70,7 @@ jobs:
           if-no-files-found: error
 
       - name: Publish green beta release
+        if: env.POCKETFORGE_BETA_SIGNING_READY == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -78,5 +81,5 @@ jobs:
             --repo "${GITHUB_REPOSITORY}" \
             --target "${GITHUB_SHA}" \
             --title "PocketForge Build ${GITHUB_RUN_NUMBER}" \
-            --notes "Green beta: unit tests, Android lint, APK assembly and signature verification passed." \
+            --notes "Green beta: unit tests, Android lint, APK assembly, signature verification, and stable beta signing passed." \
             --prerelease
