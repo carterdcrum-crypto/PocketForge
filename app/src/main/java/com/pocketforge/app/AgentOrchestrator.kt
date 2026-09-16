@@ -49,38 +49,129 @@ The contract must be implementable, minimize unrelated changes, and require a gr
         val providers = AiRouter.configuredProviders(vault)
         require(providers.isNotEmpty()) { "Connect at least one free AI provider in Integration Center." }
 
-        emit(AgentStep("understand", "PocketForge", "Understanding your request", "Turning plain English into a software job.", AgentStepState.WORKING))
+        emit(
+            AgentStep(
+                "understand",
+                "PocketForge",
+                "Understanding your request",
+                "Turning plain English into a software job.",
+                AgentStepState.WORKING
+            )
+        )
+        emit(
+            AgentStep(
+                "understand",
+                "PocketForge",
+                "Request understood",
+                "Scope is ready for the architect team.",
+                AgentStepState.DONE,
+                "Auto router"
+            )
+        )
 
-        val architectProvider = providers.first()
-        emit(AgentStep("architect", "Architect", "Designing the safest implementation", "Checking scope, architecture and protected behavior.", AgentStepState.WORKING, architectProvider.label))
-        val architect = AiRouter.ask(
-            architectProvider,
+        emit(
+            AgentStep(
+                "architect",
+                "Architect",
+                "Designing the safest implementation",
+                "Auto will hand off to another connected provider if one is busy or unavailable.",
+                AgentStepState.WORKING,
+                "Auto failover"
+            )
+        )
+        val architectRouted = AiRouter.askBest(
             ARCHITECT_SYSTEM.trim(),
             goal,
             vault
         )
-        emit(AgentStep("architect", "Architect", "Architecture ready", architect.take(500), AgentStepState.DONE, architectProvider.label))
-
-        val reviewerProvider = providers.firstOrNull { it != architectProvider }
-        val critique = if (reviewerProvider != null) {
-            emit(AgentStep("review", "Reviewer", "Challenging the plan", "A different model is looking for omissions and fragile assumptions.", AgentStepState.WORKING, reviewerProvider.label))
-            val review = AiRouter.ask(
-                reviewerProvider,
-                REVIEWER_SYSTEM.trim(),
-                "USER GOAL:\n$goal\n\nARCHITECT PLAN:\n$architect",
-                vault
+        val architect = architectRouted.text
+        val architectProvider = providers.firstOrNull { it.label == architectRouted.provider }
+        emit(
+            AgentStep(
+                "architect",
+                "Architect",
+                "Architecture ready",
+                architect.take(500),
+                AgentStepState.DONE,
+                architectRouted.provider
             )
-            emit(AgentStep("review", "Reviewer", "Review complete", review.take(500), AgentStepState.DONE, reviewerProvider.label))
-            review
+        )
+
+        val reviewExclusions = architectProvider?.let { setOf(it) }.orEmpty()
+        val hasIndependentReviewer = providers.any { it !in reviewExclusions }
+        var reviewerLabel: String? = null
+        val critique = if (hasIndependentReviewer) {
+            emit(
+                AgentStep(
+                    "review",
+                    "Reviewer",
+                    "Challenging the plan",
+                    "A different connected provider will review the architecture, with failover if needed.",
+                    AgentStepState.WORKING,
+                    "Independent auto"
+                )
+            )
+            val reviewResult = runCatching {
+                AiRouter.askBest(
+                    REVIEWER_SYSTEM.trim(),
+                    "USER GOAL:\n$goal\n\nARCHITECT PLAN:\n$architect",
+                    vault,
+                    exclude = reviewExclusions
+                )
+            }
+            reviewResult.fold(
+                onSuccess = { routed ->
+                    reviewerLabel = routed.provider
+                    emit(
+                        AgentStep(
+                            "review",
+                            "Reviewer",
+                            "Review complete",
+                            routed.text.take(500),
+                            AgentStepState.DONE,
+                            routed.provider
+                        )
+                    )
+                    routed.text
+                },
+                onFailure = { error ->
+                    emit(
+                        AgentStep(
+                            "review",
+                            "Reviewer",
+                            "Independent review unavailable",
+                            "The backup reviewers are temporarily unavailable, so PocketForge will continue to the lead instead of stopping. ${error.message.orEmpty()}",
+                            AgentStepState.DONE,
+                            "Auto continued"
+                        )
+                    )
+                    null
+                }
+            )
         } else {
-            emit(AgentStep("review", "Reviewer", "Single-provider mode", "Connect a second free AI to enable independent review.", AgentStepState.DONE, architectProvider.label))
+            emit(
+                AgentStep(
+                    "review",
+                    "Reviewer",
+                    "Single-provider mode",
+                    "Connect a second AI provider to enable independent review.",
+                    AgentStepState.DONE,
+                    architectRouted.provider
+                )
+            )
             null
         }
 
-        val leadProvider = providers.firstOrNull { it != architectProvider && it != reviewerProvider }
-            ?: reviewerProvider
-            ?: architectProvider
-        emit(AgentStep("lead", "Lead", "Reconciling the team", "Combining the goal, architecture and independent review into one contract.", AgentStepState.WORKING, leadProvider.label))
+        emit(
+            AgentStep(
+                "lead",
+                "Lead",
+                "Reconciling the team",
+                "Auto will use any healthy connected provider to create the final execution contract.",
+                AgentStepState.WORKING,
+                "Auto failover"
+            )
+        )
 
         val synthesisInput = buildString {
             appendLine("USER GOAL:")
@@ -98,12 +189,29 @@ The contract must be implementable, minimize unrelated changes, and require a gr
             LEAD_SYSTEM.trim(),
             synthesisInput,
             vault,
-            exclude = emptySet(),
             expectJson = true
         )
         val plan = parsePlan(finalRouted.provider, finalRouted.text)
-        emit(AgentStep("lead", "Lead", "Execution contract ready", plan.summary, AgentStepState.DONE, finalRouted.provider))
-        emit(AgentStep("verify", "Verifier", "Verification gate prepared", plan.verify, AgentStepState.DONE, "Compiler + CI"))
+        emit(
+            AgentStep(
+                "lead",
+                "Lead",
+                "Execution contract ready",
+                plan.summary,
+                AgentStepState.DONE,
+                finalRouted.provider
+            )
+        )
+        emit(
+            AgentStep(
+                "verify",
+                "Verifier",
+                "Verification gate prepared",
+                plan.verify,
+                AgentStepState.DONE,
+                "Compiler + CI"
+            )
+        )
 
         val answer = buildString {
             append(plan.summary)
@@ -117,7 +225,11 @@ The contract must be implementable, minimize unrelated changes, and require a gr
 
         return AgentRunResult(
             answer = answer,
-            providers = listOfNotNull(architectProvider.label, reviewerProvider?.label, finalRouted.provider).distinct(),
+            providers = listOfNotNull(
+                architectRouted.provider,
+                reviewerLabel,
+                finalRouted.provider
+            ).distinct(),
             plan = plan,
             critique = critique,
             synthesis = finalRouted.text
