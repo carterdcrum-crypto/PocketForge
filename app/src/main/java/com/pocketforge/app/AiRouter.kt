@@ -70,6 +70,28 @@ Use 1–4 screens and keep it practical for a beginner. Use a ledger for money e
         }
     }
 
+    internal fun isTransientFailure(message: String): Boolean {
+        val value = message.lowercase()
+        return listOf(
+            "high demand",
+            "temporar",
+            "overload",
+            "resource exhausted",
+            "rate limit",
+            "too many requests",
+            "service unavailable",
+            "unavailable",
+            "timeout",
+            "timed out",
+            "connection reset",
+            "http 429",
+            "http 500",
+            "http 502",
+            "http 503",
+            "http 504"
+        ).any(value::contains)
+    }
+
     fun configuredProviders(vault: SecretVault): List<FreeAiProvider> = buildList {
         if (vault.has(IntegrationKeys.GEMINI)) add(FreeAiProvider.GEMINI)
         if (vault.has(IntegrationKeys.OPENROUTER)) add(FreeAiProvider.OPENROUTER)
@@ -153,9 +175,18 @@ Use 1–4 screens and keep it practical for a beginner. Use a ledger for money e
         if (order.isEmpty()) error("Connect at least one AI provider in Integration Center.")
 
         for (provider in order) {
-            runCatching {
-                return RoutedAiResponse(provider.label, ask(provider, systemPrompt, userPrompt, vault, expectJson))
-            }.onFailure { failures += "${provider.label}: ${it.message}" }
+            var lastFailure: Throwable? = null
+            for (attempt in 1..3) {
+                try {
+                    return RoutedAiResponse(provider.label, ask(provider, systemPrompt, userPrompt, vault, expectJson))
+                } catch (failure: Throwable) {
+                    lastFailure = failure
+                    val transient = isTransientFailure(failure.message.orEmpty())
+                    if (!transient || attempt == 3) break
+                    Thread.sleep(if (attempt == 1) 1_250L else 3_000L)
+                }
+            }
+            failures += "${provider.label}: ${lastFailure?.message ?: "unknown failure"}"
         }
         error("Every eligible AI provider failed. ${failures.joinToString(" | ")}")
     }
@@ -304,7 +335,8 @@ Use 1–4 screens and keep it practical for a beginner. Use a ledger for money e
                         else -> JSONObject(response).optString("message")
                     }
                 }.getOrDefault("")
-                error(message.takeIf { it.isNotBlank() } ?: "HTTP $code")
+                val detail = message.takeIf { it.isNotBlank() } ?: "Request failed"
+                error("HTTP $code: $detail")
             }
             response
         } finally {
