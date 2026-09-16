@@ -349,10 +349,14 @@ private object PocketForgeUpdater {
     private fun signerDigests(info: PackageInfo): Set<String> {
         val signatures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             val signingInfo = info.signingInfo ?: return emptySet()
-            if (signingInfo.hasMultipleSigners()) signingInfo.apkContentsSigners else signingInfo.signingCertificateHistory
+            (if (signingInfo.hasMultipleSigners()) {
+                signingInfo.apkContentsSigners
+            } else {
+                signingInfo.signingCertificateHistory
+            }).orEmpty()
         } else {
             @Suppress("DEPRECATION")
-            info.signatures
+            info.signatures.orEmpty()
         }
         return signatures.map { signature ->
             MessageDigest.getInstance("SHA-256")
