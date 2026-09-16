@@ -23,6 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -31,22 +32,50 @@ import androidx.compose.ui.window.Dialog
 import kotlinx.coroutines.launch
 import java.util.Locale
 
-private val PfBg = Color(0xFF101010)
-private val PfSurface = Color(0xFF171717)
-private val PfRaised = Color(0xFF212121)
-private val PfUser = Color(0xFF2B2B2B)
-private val PfLine = Color(0xFF303030)
-private val PfText = Color(0xFFF4F4F4)
-private val PfMuted = Color(0xFFA8A8A8)
+private val PfBg = Color(0xFF08100C)
+private val PfSurface = Color(0xFF111A15)
+private val PfRaised = Color(0xFF18241D)
+private val PfUser = Color(0xFF203027)
+private val PfLine = Color(0xFF2A3A30)
+private val PfText = Color(0xFFF4F7F2)
+private val PfMuted = Color(0xFFA7B3AA)
+private val PfAccent = Color(0xFF8FF0A4)
+private val PfAccentSoft = Color(0xFF183D25)
 private val PfGood = Color(0xFF8CE99A)
 private val PfWarn = Color(0xFFFFD166)
 private val PfBad = Color(0xFFFF8A8A)
+private val PfBlue = Color(0xFF83B9FF)
+
+private val PfTypography = Typography(
+    displayLarge = Typography().displayLarge.copy(fontFamily = FontFamily.SansSerif),
+    displayMedium = Typography().displayMedium.copy(fontFamily = FontFamily.SansSerif),
+    displaySmall = Typography().displaySmall.copy(fontFamily = FontFamily.SansSerif),
+    headlineLarge = Typography().headlineLarge.copy(fontFamily = FontFamily.SansSerif),
+    headlineMedium = Typography().headlineMedium.copy(fontFamily = FontFamily.SansSerif),
+    headlineSmall = Typography().headlineSmall.copy(fontFamily = FontFamily.SansSerif),
+    titleLarge = Typography().titleLarge.copy(fontFamily = FontFamily.SansSerif),
+    titleMedium = Typography().titleMedium.copy(fontFamily = FontFamily.SansSerif),
+    titleSmall = Typography().titleSmall.copy(fontFamily = FontFamily.SansSerif),
+    bodyLarge = Typography().bodyLarge.copy(fontFamily = FontFamily.SansSerif),
+    bodyMedium = Typography().bodyMedium.copy(fontFamily = FontFamily.SansSerif),
+    bodySmall = Typography().bodySmall.copy(fontFamily = FontFamily.SansSerif),
+    labelLarge = Typography().labelLarge.copy(fontFamily = FontFamily.SansSerif),
+    labelMedium = Typography().labelMedium.copy(fontFamily = FontFamily.SansSerif),
+    labelSmall = Typography().labelSmall.copy(fontFamily = FontFamily.SansSerif)
+)
 
 enum class ForgeMode(val label: String, val shortDescription: String) {
     AUTO("Auto", "PocketForge chooses the cheapest capable team."),
     SWARM("Swarm", "Multiple AIs independently plan, challenge, and reconcile."),
     AUTOPILOT("Autopilot", "Plan, edit a protected branch, build, repair, and verify."),
     BUILD("Build", "Route the current project through the build system.")
+}
+
+private enum class WorkspaceSection(val label: String) {
+    WORKSPACE("Workspace"),
+    FILES("Files"),
+    LOGS("Logs"),
+    SETTINGS("Settings")
 }
 
 private data class GoalOutcome(
@@ -58,6 +87,7 @@ private data class GoalOutcome(
 fun AgentWorkspaceV2App() {
     val context = LocalContext.current
     val store = remember { WorkspaceStore(context) }
+    val studio = remember { StudioStore(context) }
     val vault = remember { SecretVault(context) }
     var projects by remember { mutableStateOf(store.projects()) }
     var project by remember { mutableStateOf(projects.first()) }
@@ -66,11 +96,14 @@ fun AgentWorkspaceV2App() {
     var prompt by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var mode by remember { mutableStateOf(ForgeMode.AUTO) }
+    var section by remember { mutableStateOf(WorkspaceSection.WORKSPACE) }
     var showModeMenu by remember { mutableStateOf(false) }
     var showNewProject by remember { mutableStateOf(false) }
     var showUpdater by remember { mutableStateOf(false) }
     var showCapabilities by remember { mutableStateOf(false) }
     var topMenuOpen by remember { mutableStateOf(false) }
+    var lastExecution by remember { mutableStateOf<RepoExecutionResult?>(null) }
+    var lastGoal by remember { mutableStateOf("") }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
@@ -93,6 +126,9 @@ fun AgentWorkspaceV2App() {
         messages.clear()
         messages.addAll(store.messages(next.id))
         steps.clear()
+        lastExecution = null
+        lastGoal = ""
+        section = WorkspaceSection.WORKSPACE
         scope.launch { drawerState.close() }
     }
 
@@ -100,9 +136,11 @@ fun AgentWorkspaceV2App() {
         if (messages.isEmpty()) messages.addAll(store.messages(project.id))
     }
 
-    LaunchedEffect(messages.size, steps.size) {
-        val total = messages.size + if (steps.isNotEmpty()) 1 else 0
-        if (total > 0) listState.animateScrollToItem(total - 1)
+    LaunchedEffect(messages.size, steps.size, section) {
+        if (section == WorkspaceSection.WORKSPACE) {
+            val total = messages.size + if (steps.isNotEmpty()) 1 else 0
+            if (total > 0) listState.animateScrollToItem(total - 1)
+        }
     }
 
     fun addMessage(role: String, text: String) {
@@ -142,6 +180,7 @@ fun AgentWorkspaceV2App() {
     fun runBuild(crossCheck: Boolean, announce: Boolean = true) {
         if (busy) return
         busy = true
+        section = WorkspaceSection.WORKSPACE
         steps.clear()
         if (announce) {
             addMessage("user", if (crossCheck) "Cross-check this project on every connected APK builder." else "Build this project with the best connected APK builder.")
@@ -168,10 +207,10 @@ fun AgentWorkspaceV2App() {
                 busy = false
                 result.onSuccess { detail ->
                     updateStep(AgentStep("build-route", "Build Router", "Build dispatched", detail, AgentStepState.DONE, "CI Router"))
-                    addMessage("assistant", "The build job is dispatched. I’m treating the compiler, tests, lint, and APK verification as the authority—not the AI’s confidence.\n\n$detail")
+                    addMessage("assistant", "The build job is dispatched. Compiler, tests, lint, APK assembly, and verification remain the authority.\n\n$detail")
                 }.onFailure { error ->
                     updateStep(AgentStep("build-route", "Build Router", "Build dispatch blocked", error.message ?: "Unknown error", AgentStepState.FAILED, "CI Router"))
-                    addMessage("assistant", "I couldn’t start the build: ${error.message ?: "unknown error"}. Open AI & build connectors and connect at least one builder.")
+                    addMessage("assistant", "I couldn’t start the build: ${error.message ?: "unknown error"}. Open Connections and connect at least one builder.")
                 }
             }
         }.start()
@@ -180,9 +219,12 @@ fun AgentWorkspaceV2App() {
     fun runGoal(goal: String) {
         if (busy || goal.isBlank()) return
         val cleanGoal = goal.trim()
+        lastGoal = cleanGoal
+        lastExecution = null
         addMessage("user", cleanGoal)
         prompt = ""
         steps.clear()
+        section = WorkspaceSection.WORKSPACE
 
         if (mode == ForgeMode.BUILD) {
             runBuild(crossCheck = false, announce = false)
@@ -190,17 +232,17 @@ fun AgentWorkspaceV2App() {
         }
 
         if (AiRouter.configuredProviders(vault).isEmpty()) {
-            addMessage("assistant", "I can run the workspace, memory, previews, updater, and build tools, but I need at least one free AI key for reasoning. Open AI & build connectors. Two providers unlock independent review; three unlock a full architect → reviewer → lead team.")
+            addMessage("assistant", "Connect at least one AI provider in Connections. Two providers unlock independent review; three unlock a full architect → reviewer → lead team.")
             return
         }
 
         if (mode == ForgeMode.AUTOPILOT && (!vault.has(IntegrationKeys.GITHUB_REPO) || !vault.has(IntegrationKeys.GITHUB_TOKEN))) {
-            addMessage("assistant", "Autopilot needs a bound GitHub repository and a repository token in AI & build connectors. I will never ask you to paste that token into the chat.")
+            addMessage("assistant", "Autopilot needs a bound GitHub repository and repository token in Connections. Tokens stay in the encrypted Android vault.")
             return
         }
 
         busy = true
-        updateStep(AgentStep("route", "Router", "Choosing the agent team", "Mode: ${mode.label}. Checking connected free providers and assigning roles.", AgentStepState.WORKING, "Free-first router"))
+        updateStep(AgentStep("route", "Router", "Choosing the agent team", "Mode: ${mode.label}. Checking connected providers and assigning roles.", AgentStepState.WORKING, "Auto router"))
 
         Thread {
             val result = runCatching {
@@ -214,8 +256,8 @@ fun AgentWorkspaceV2App() {
                         GoalOutcome(plan)
                     }
                     ForgeMode.AUTOPILOT -> {
-                        updateStep(AgentStep("route", "Router", "Autopilot team assembled", "Planning first; repository writes remain isolated to a new PocketForge branch.", AgentStepState.DONE, AiRouter.configuredProviders(vault).joinToString(" · ") { it.label }))
-                        updateStep(AgentStep("autopilot-plan", "Lead", "Creating the execution contract", "Using multi-model consensus when at least two providers are connected.", AgentStepState.WORKING, "Free AI team"))
+                        updateStep(AgentStep("route", "Router", "Autopilot team assembled", "Planning first; repository writes stay isolated to a new PocketForge branch.", AgentStepState.DONE, AiRouter.configuredProviders(vault).joinToString(" · ") { it.label }))
+                        updateStep(AgentStep("autopilot-plan", "Lead", "Creating the execution contract", "Using independent review when at least two providers are connected.", AgentStepState.WORKING, "AI team"))
                         val plan = if (AiRouter.configuredProviders(vault).size >= 2) {
                             AiRouter.planConsensus(cleanGoal, vault)
                         } else {
@@ -237,6 +279,7 @@ fun AgentWorkspaceV2App() {
             handler.post {
                 busy = false
                 result.onSuccess { outcome ->
+                    lastExecution = outcome.execution
                     saveBrain(cleanGoal, outcome.plan, mode, outcome.execution)
                     val execution = outcome.execution
                     if (execution != null) {
@@ -245,17 +288,15 @@ fun AgentWorkspaceV2App() {
                             buildString {
                                 appendLine(outcome.plan.summary)
                                 appendLine()
-                                appendLine("Autopilot worked on a protected branch only:")
-                                appendLine(execution.branch)
-                                appendLine()
-                                appendLine("Changed: ${execution.changedFiles.joinToString().ifBlank { "none" }}")
+                                appendLine("Protected branch: ${execution.branch}")
+                                appendLine("Changed files: ${execution.changedFiles.size}")
                                 appendLine("Build: ${execution.buildConclusion}")
                                 appendLine("Repair attempts: ${execution.repairAttempts}")
                                 appendLine()
                                 if (execution.verified) {
-                                    append("✓ The branch passed the configured verification build. It has NOT been merged into your green branch automatically.")
+                                    append("✓ Verified green. The branch passed the configured build gate and was not auto-merged.")
                                 } else {
-                                    append("This run is not verified green. I left the default branch untouched and did not pretend the job was complete.")
+                                    append("Not verified green. PocketForge left the green/default branch untouched.")
                                 }
                             }
                         )
@@ -266,16 +307,14 @@ fun AgentWorkspaceV2App() {
                                 appendLine(outcome.plan.summary)
                                 appendLine()
                                 appendLine("Scope: ${outcome.plan.scope}")
-                                appendLine()
                                 appendLine("Protected: ${outcome.plan.protected}")
-                                appendLine()
                                 append("Verification: ${outcome.plan.verify}")
                             }
                         )
                     }
                 }.onFailure { error ->
                     updateStep(AgentStep("failed-${System.currentTimeMillis()}", "PocketForge", "Run stopped", error.message ?: "Unknown error", AgentStepState.FAILED))
-                    addMessage("assistant", "I hit a blocker: ${error.message ?: "unknown error"}. I did not mark the job complete or change the green branch to hide the failure.")
+                    addMessage("assistant", "I hit a blocker: ${error.message ?: "unknown error"}. The green/default branch was not changed to hide the failure.")
                 }
             }
         }.start()
@@ -293,14 +332,16 @@ fun AgentWorkspaceV2App() {
 
     MaterialTheme(
         colorScheme = darkColorScheme(
-            primary = Color.White,
+            primary = PfAccent,
             background = PfBg,
             surface = PfSurface,
             surfaceVariant = PfRaised,
-            onPrimary = Color.Black,
+            onPrimary = Color(0xFF07140B),
             onBackground = PfText,
-            onSurface = PfText
-        )
+            onSurface = PfText,
+            outline = PfLine
+        ),
+        typography = PfTypography
     ) {
         ModalNavigationDrawer(
             drawerState = drawerState,
@@ -311,7 +352,7 @@ fun AgentWorkspaceV2App() {
                         projects = projects,
                         onProject = ::loadProject,
                         onNewProject = { showNewProject = true },
-                        onPreview = { context.startActivity(Intent(context, GeneratedPreviewActivity::class.java)) },
+                        onPreview = { context.startActivity(Intent(context, GeneratedPreviewActivity::class.java).putExtra("pocketforge.project_id", project.id)) },
                         onBuild = { runBuild(false) },
                         onCrossCheck = { runBuild(true) },
                         onIntegrations = { context.startActivity(Intent(context, IntegrationCenterActivity::class.java)) },
@@ -324,54 +365,81 @@ fun AgentWorkspaceV2App() {
             Scaffold(
                 containerColor = PfBg,
                 topBar = {
-                    PfTopBar(
-                        projectName = project.name,
+                    Column {
+                        PfTopBar(
+                            projectName = project.name,
+                            providerCount = AiRouter.configuredProviders(vault).size,
+                            mode = mode,
+                            activeProvider = steps.lastOrNull { it.state == AgentStepState.WORKING }?.provider,
+                            menuOpen = topMenuOpen,
+                            onMenuOpen = { topMenuOpen = it },
+                            onDrawer = { scope.launch { drawerState.open() } },
+                            onPreview = { context.startActivity(Intent(context, GeneratedPreviewActivity::class.java).putExtra("pocketforge.project_id", project.id)) },
+                            onBuild = { runBuild(false) },
+                            onCrossCheck = { runBuild(true) },
+                            onIntegrations = { context.startActivity(Intent(context, IntegrationCenterActivity::class.java)) },
+                            onCapabilities = { showCapabilities = true },
+                            onUpdater = { showUpdater = true }
+                        )
+                        PfSectionTabs(section = section, onSection = { section = it })
+                    }
+                },
+                bottomBar = {
+                    if (section == WorkspaceSection.WORKSPACE) {
+                        PfComposer(
+                            value = prompt,
+                            onValue = { prompt = it },
+                            busy = busy,
+                            mode = mode,
+                            modeMenuOpen = showModeMenu,
+                            onModeMenuOpen = { showModeMenu = it },
+                            onMode = { mode = it; showModeMenu = false },
+                            onSend = { runGoal(prompt) },
+                            onVoice = ::launchVoice,
+                            onTools = { context.startActivity(Intent(context, IntegrationCenterActivity::class.java)) },
+                            onPreview = { context.startActivity(Intent(context, GeneratedPreviewActivity::class.java).putExtra("pocketforge.project_id", project.id)) }
+                        )
+                    }
+                }
+            ) { padding ->
+                when (section) {
+                    WorkspaceSection.WORKSPACE -> PfWorkspacePanel(
+                        modifier = Modifier.padding(padding),
+                        messages = messages,
+                        steps = steps,
+                        busy = busy,
                         providerCount = AiRouter.configuredProviders(vault).size,
+                        lastGoal = lastGoal,
+                        execution = lastExecution,
+                        listState = listState,
+                        onPrompt = { prompt = it },
+                        onCapabilities = { showCapabilities = true },
+                        onFiles = { section = WorkspaceSection.FILES },
+                        onLogs = { section = WorkspaceSection.LOGS }
+                    )
+                    WorkspaceSection.FILES -> PfFilesPanel(
+                        modifier = Modifier.padding(padding),
+                        project = project,
+                        spec = studio.latest(project.id)?.spec,
+                        execution = lastExecution
+                    )
+                    WorkspaceSection.LOGS -> PfLogsPanel(
+                        modifier = Modifier.padding(padding),
+                        steps = steps,
+                        execution = lastExecution,
+                        busy = busy
+                    )
+                    WorkspaceSection.SETTINGS -> PfSettingsPanel(
+                        modifier = Modifier.padding(padding),
+                        vault = vault,
                         mode = mode,
-                        menuOpen = topMenuOpen,
-                        onMenuOpen = { topMenuOpen = it },
-                        onDrawer = { scope.launch { drawerState.open() } },
-                        onPreview = { context.startActivity(Intent(context, GeneratedPreviewActivity::class.java)) },
+                        onMode = { mode = it },
+                        onConnections = { context.startActivity(Intent(context, IntegrationCenterActivity::class.java)) },
                         onBuild = { runBuild(false) },
                         onCrossCheck = { runBuild(true) },
-                        onIntegrations = { context.startActivity(Intent(context, IntegrationCenterActivity::class.java)) },
                         onCapabilities = { showCapabilities = true },
                         onUpdater = { showUpdater = true }
                     )
-                },
-                bottomBar = {
-                    PfComposer(
-                        value = prompt,
-                        onValue = { prompt = it },
-                        busy = busy,
-                        mode = mode,
-                        modeMenuOpen = showModeMenu,
-                        onModeMenuOpen = { showModeMenu = it },
-                        onMode = { mode = it; showModeMenu = false },
-                        onSend = { runGoal(prompt) },
-                        onVoice = ::launchVoice,
-                        onTools = { context.startActivity(Intent(context, IntegrationCenterActivity::class.java)) },
-                        onPreview = { context.startActivity(Intent(context, GeneratedPreviewActivity::class.java)) }
-                    )
-                }
-            ) { padding ->
-                if (messages.isEmpty() && steps.isEmpty()) {
-                    PfEmptyState(
-                        modifier = Modifier.padding(padding).fillMaxSize(),
-                        providerCount = AiRouter.configuredProviders(vault).size,
-                        onPrompt = { prompt = it },
-                        onCapabilities = { showCapabilities = true }
-                    )
-                } else {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.padding(padding).fillMaxSize(),
-                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 18.dp),
-                        verticalArrangement = Arrangement.spacedBy(18.dp)
-                    ) {
-                        items(messages, key = { it.id }) { message -> PfMessage(message) }
-                        if (steps.isNotEmpty()) item(key = "work-trace") { PfWorkTrace(steps, busy) }
-                    }
                 }
             }
         }
@@ -389,9 +457,9 @@ fun AgentWorkspaceV2App() {
         )
     }
 
-    if (showUpdater) {
+    if (BuildConfig.ENABLE_SIDELOAD_UPDATER && showUpdater) {
         Dialog(onDismissRequest = { showUpdater = false }) {
-            Surface(color = PfSurface, shape = RoundedCornerShape(24.dp)) {
+            Surface(color = PfSurface, shape = RoundedCornerShape(24.dp), border = BorderStroke(1.dp, PfLine)) {
                 Column(Modifier.padding(14.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("PocketForge updates", color = PfText, fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.weight(1f))
@@ -403,9 +471,7 @@ fun AgentWorkspaceV2App() {
         }
     }
 
-    if (showCapabilities) {
-        PfCapabilitiesDialog(onDismiss = { showCapabilities = false })
-    }
+    if (showCapabilities) PfCapabilitiesDialog(onDismiss = { showCapabilities = false })
 }
 
 @Composable
@@ -413,6 +479,7 @@ private fun PfTopBar(
     projectName: String,
     providerCount: Int,
     mode: ForgeMode,
+    activeProvider: String?,
     menuOpen: Boolean,
     onMenuOpen: (Boolean) -> Unit,
     onDrawer: () -> Unit,
@@ -424,24 +491,304 @@ private fun PfTopBar(
     onUpdater: () -> Unit
 ) {
     Surface(color = PfBg) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onDrawer, contentPadding = PaddingValues(8.dp)) { Text("☰", color = PfText, fontSize = 20.sp) }
+            Surface(color = PfAccentSoft, shape = RoundedCornerShape(12.dp), modifier = Modifier.size(38.dp)) {
+                Box(contentAlignment = Alignment.Center) { Text("P", color = PfAccent, fontWeight = FontWeight.Black) }
+            }
+            Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Text(projectName, color = PfText, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("${mode.label} · ${if (providerCount == 0) "connect free AI" else "$providerCount provider${if (providerCount == 1) "" else "s"}"}", color = PfMuted, fontSize = 10.sp)
+                Text("PocketForge", color = PfText, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                Text(projectName, color = PfMuted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    buildString {
+                        append(mode.label)
+                        append(" · ")
+                        append(if (providerCount == 0) "connect AI" else "$providerCount provider${if (providerCount == 1) "" else "s"}")
+                        if (!activeProvider.isNullOrBlank()) append(" · $activeProvider")
+                    },
+                    color = if (activeProvider != null) PfAccent else PfMuted,
+                    fontSize = 9.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            if (BuildConfig.ENABLE_SIDELOAD_UPDATER) {
+                OutlinedButton(
+                    onClick = onUpdater,
+                    border = BorderStroke(1.dp, Color(0xFF4C8E5A)),
+                    shape = RoundedCornerShape(100.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                ) { Text("↓ Update", color = PfAccent, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
             }
             Box {
-                TextButton(onClick = { onMenuOpen(true) }, contentPadding = PaddingValues(8.dp)) { Text("•••", color = PfText, fontSize = 17.sp) }
+                TextButton(onClick = { onMenuOpen(true) }, contentPadding = PaddingValues(8.dp)) { Text("•••", color = PfText, fontSize = 16.sp) }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { onMenuOpen(false) }, containerColor = PfRaised) {
                     DropdownMenuItem(text = { Text("Open full app preview") }, onClick = { onMenuOpen(false); onPreview() })
                     DropdownMenuItem(text = { Text("Build current project") }, onClick = { onMenuOpen(false); onBuild() })
                     DropdownMenuItem(text = { Text("Cross-check APK build") }, onClick = { onMenuOpen(false); onCrossCheck() })
-                    DropdownMenuItem(text = { Text("AI & build connectors") }, onClick = { onMenuOpen(false); onIntegrations() })
+                    DropdownMenuItem(text = { Text("AI & build connections") }, onClick = { onMenuOpen(false); onIntegrations() })
                     DropdownMenuItem(text = { Text("Capability map") }, onClick = { onMenuOpen(false); onCapabilities() })
-                    DropdownMenuItem(text = { Text("Check for PocketForge updates") }, onClick = { onMenuOpen(false); onUpdater() })
+                    if (BuildConfig.ENABLE_SIDELOAD_UPDATER) {
+                        DropdownMenuItem(text = { Text("Check for PocketForge updates") }, onClick = { onMenuOpen(false); onUpdater() })
+                    }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun PfSectionTabs(section: WorkspaceSection, onSection: (WorkspaceSection) -> Unit) {
+    Surface(color = PfBg) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            WorkspaceSection.entries.forEach { item ->
+                Surface(
+                    modifier = Modifier.weight(1f).clickable { onSection(item) },
+                    color = if (section == item) PfAccentSoft else Color.Transparent,
+                    shape = RoundedCornerShape(12.dp),
+                    border = if (section == item) BorderStroke(1.dp, Color(0xFF355440)) else null
+                ) {
+                    Text(
+                        item.label,
+                        color = if (section == item) PfAccent else PfMuted,
+                        fontSize = 11.sp,
+                        fontWeight = if (section == item) FontWeight.Bold else FontWeight.Medium,
+                        modifier = Modifier.padding(vertical = 9.dp),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PfWorkspacePanel(
+    modifier: Modifier,
+    messages: List<WorkspaceMessage>,
+    steps: List<AgentStep>,
+    busy: Boolean,
+    providerCount: Int,
+    lastGoal: String,
+    execution: RepoExecutionResult?,
+    listState: androidx.compose.foundation.lazy.LazyListState,
+    onPrompt: (String) -> Unit,
+    onCapabilities: () -> Unit,
+    onFiles: () -> Unit,
+    onLogs: () -> Unit
+) {
+    if (messages.isEmpty() && steps.isEmpty()) {
+        PfEmptyState(modifier.fillMaxSize(), providerCount, onPrompt, onCapabilities)
+        return
+    }
+
+    LazyColumn(
+        state = listState,
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        if (lastGoal.isNotBlank()) {
+            item(key = "request-card") {
+                Surface(color = PfSurface, shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, PfLine)) {
+                    Column(Modifier.padding(15.dp)) {
+                        Text("YOUR REQUEST", color = PfAccent, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.3.sp)
+                        Text(lastGoal, color = PfText, fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.padding(top = 6.dp))
+                    }
+                }
+            }
+        }
+
+        items(messages, key = { it.id }) { message -> PfMessage(message) }
+        if (steps.isNotEmpty()) item(key = "work-trace") { PfWorkTrace(steps, busy) }
+        execution?.let { run ->
+            item(key = "run-result") {
+                PfRunResultCard(run, onFiles = onFiles, onLogs = onLogs)
+            }
+        }
+    }
+}
+
+@Composable
+private fun PfRunResultCard(execution: RepoExecutionResult, onFiles: () -> Unit, onLogs: () -> Unit) {
+    val verified = execution.verified
+    Surface(
+        color = if (verified) Color(0xFF10261A) else Color(0xFF261A13),
+        shape = RoundedCornerShape(18.dp),
+        border = BorderStroke(1.dp, if (verified) Color(0xFF355F42) else Color(0xFF6A4A35))
+    ) {
+        Column(Modifier.padding(15.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(color = if (verified) PfGood.copy(alpha = 0.14f) else PfWarn.copy(alpha = 0.14f), shape = CircleShape) {
+                    Text(if (verified) "✓" else "!", color = if (verified) PfGood else PfWarn, fontWeight = FontWeight.Black, modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp))
+                }
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(if (verified) "Verified green branch" else "Verification incomplete", color = PfText, fontWeight = FontWeight.Bold)
+                    Text(execution.buildConclusion, color = PfMuted, fontSize = 10.sp)
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            PfKeyValue("Branch", execution.branch)
+            PfKeyValue("Model", execution.model)
+            PfKeyValue("Files changed", execution.changedFiles.size.toString())
+            PfKeyValue("Repair attempts", execution.repairAttempts.toString())
+            Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onFiles, modifier = Modifier.weight(1f)) { Text("Changed files") }
+                OutlinedButton(onClick = onLogs, modifier = Modifier.weight(1f)) { Text("Run logs") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PfFilesPanel(modifier: Modifier, project: WorkspaceProject, spec: StudioSpec?, execution: RepoExecutionResult?) {
+    LazyColumn(
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            Text("Files & structure", color = PfText, fontSize = 23.sp, fontWeight = FontWeight.Black)
+            Text("What PocketForge can prove about the current project and the latest Autopilot run.", color = PfMuted, fontSize = 12.sp, lineHeight = 17.sp, modifier = Modifier.padding(top = 4.dp))
+        }
+        item {
+            PfInfoCard("Project", project.name) {
+                Text(project.brain, color = PfMuted, fontSize = 11.sp, lineHeight = 16.sp, maxLines = 10, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        if (spec != null) {
+            item {
+                PfInfoCard("Generated app structure", "${spec.screens.size} screen${if (spec.screens.size == 1) "" else "s"}") {
+                    spec.screens.forEach { screen ->
+                        PfFileRow("${screen.title}", "${screen.type} · ${screen.fields.size} field${if (screen.fields.size == 1) "" else "s"}")
+                    }
+                }
+            }
+        }
+        item {
+            PfInfoCard("Latest repository run", execution?.branch ?: "No Autopilot branch in this session") {
+                if (execution == null) {
+                    Text("Run Autopilot to create an isolated branch and see the exact files it changes here.", color = PfMuted, fontSize = 11.sp, lineHeight = 16.sp)
+                } else if (execution.changedFiles.isEmpty()) {
+                    Text("No repository files were changed.", color = PfMuted, fontSize = 11.sp)
+                } else {
+                    execution.changedFiles.forEach { path -> PfFileRow(path.substringAfterLast('/'), path) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PfLogsPanel(modifier: Modifier, steps: List<AgentStep>, execution: RepoExecutionResult?, busy: Boolean) {
+    LazyColumn(
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        item {
+            Text("Run logs", color = PfText, fontSize = 23.sp, fontWeight = FontWeight.Black)
+            Text("A readable audit trail of the agent and verification stages from this session.", color = PfMuted, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+        }
+        if (steps.isEmpty()) {
+            item { PfEmptyPanel("No run logs yet", "Start a workspace request or build. PocketForge will record each visible stage here.") }
+        } else {
+            items(steps, key = { it.id }) { step ->
+                PfLogRow(step)
+            }
+        }
+        execution?.let { run ->
+            item {
+                PfInfoCard("Verification summary", if (run.verified) "GREEN" else "NOT VERIFIED") {
+                    PfKeyValue("Repository", run.repository)
+                    PfKeyValue("Branch", run.branch)
+                    PfKeyValue("Build", run.buildConclusion)
+                    PfKeyValue("Repairs", run.repairAttempts.toString())
+                }
+            }
+        }
+        if (busy) {
+            item {
+                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = PfAccent)
+                    Spacer(Modifier.width(9.dp))
+                    Text("PocketForge is still working. This log updates as stages change.", color = PfMuted, fontSize = 11.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PfSettingsPanel(
+    modifier: Modifier,
+    vault: SecretVault,
+    mode: ForgeMode,
+    onMode: (ForgeMode) -> Unit,
+    onConnections: () -> Unit,
+    onBuild: () -> Unit,
+    onCrossCheck: () -> Unit,
+    onCapabilities: () -> Unit,
+    onUpdater: () -> Unit
+) {
+    val providers = AiRouter.configuredProviders(vault)
+    val githubReady = vault.has(IntegrationKeys.GITHUB_REPO) && vault.has(IntegrationKeys.GITHUB_TOKEN)
+    val codemagicReady = vault.has(IntegrationKeys.CODEMAGIC_TOKEN) && vault.has(IntegrationKeys.CODEMAGIC_APP_ID)
+    val bitriseReady = vault.has(IntegrationKeys.BITRISE_TOKEN) && vault.has(IntegrationKeys.BITRISE_APP_SLUG)
+
+    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
+        Text("Workspace settings", color = PfText, fontSize = 23.sp, fontWeight = FontWeight.Black)
+        Text("Connections, execution mode, build infrastructure, and beta tools.", color = PfMuted, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp, bottom = 16.dp))
+
+        PfInfoCard("AI team", "${providers.size} connected") {
+            if (providers.isEmpty()) Text("No AI provider connected.", color = PfWarn, fontSize = 11.sp)
+            providers.forEach { provider -> PfStatusRow(provider.label, true, "Ready for Auto routing") }
+            OutlinedButton(onClick = onConnections, modifier = Modifier.fillMaxWidth().padding(top = 10.dp)) { Text("Manage connections") }
+        }
+
+        Spacer(Modifier.height(12.dp))
+        PfInfoCard("Execution mode", mode.label) {
+            ForgeMode.entries.forEach { item ->
+                Row(
+                    Modifier.fillMaxWidth().clickable { onMode(item) }.padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(selected = mode == item, onClick = { onMode(item) })
+                    Column(Modifier.padding(start = 6.dp)) {
+                        Text(item.label, color = PfText, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                        Text(item.shortDescription, color = PfMuted, fontSize = 10.sp)
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+        PfInfoCard("Build infrastructure", "Compiler is the authority") {
+            PfStatusRow("GitHub", githubReady, if (githubReady) "Repository + Actions ready" else "Connect repository and token")
+            PfStatusRow("Codemagic", codemagicReady, if (codemagicReady) "Connected" else "Optional")
+            PfStatusRow("Bitrise", bitriseReady, if (bitriseReady) "Connected" else "Optional")
+            Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onBuild, modifier = Modifier.weight(1f)) { Text("Build") }
+                OutlinedButton(onClick = onCrossCheck, modifier = Modifier.weight(1f)) { Text("Cross-check") }
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
+        PfInfoCard("Product tools", if (BuildConfig.ENABLE_SIDELOAD_UPDATER) "Beta build" else "Production build") {
+            TextButton(onClick = onCapabilities, modifier = Modifier.fillMaxWidth()) { Text("Capability map", modifier = Modifier.fillMaxWidth()) }
+            if (BuildConfig.ENABLE_SIDELOAD_UPDATER) {
+                TextButton(onClick = onUpdater, modifier = Modifier.fillMaxWidth()) { Text("PocketForge updater", modifier = Modifier.fillMaxWidth()) }
+            }
+            Text(
+                if (BuildConfig.ENABLE_SIDELOAD_UPDATER) "The sideload updater is intentionally enabled for debugging." else "The Play production build compiles the sideload updater out.",
+                color = PfMuted,
+                fontSize = 10.sp,
+                lineHeight = 15.sp
+            )
+        }
+        Spacer(Modifier.height(20.dp))
     }
 }
 
@@ -460,10 +807,9 @@ private fun PfDrawer(
 ) {
     Column(Modifier.fillMaxHeight().padding(horizontal = 10.dp)) {
         Spacer(Modifier.height(12.dp))
-        Text("PocketForge", color = PfText, fontWeight = FontWeight.Bold, fontSize = 20.sp, modifier = Modifier.padding(12.dp))
+        Text("PocketForge", color = PfText, fontWeight = FontWeight.Black, fontSize = 20.sp, modifier = Modifier.padding(12.dp))
         NavigationDrawerItem(label = { Text("＋ New project") }, selected = false, onClick = onNewProject, colors = NavigationDrawerItemDefaults.colors(unselectedContainerColor = Color.Transparent, unselectedTextColor = PfText))
-        Spacer(Modifier.height(8.dp))
-        Text("PROJECTS", color = PfMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp))
+        Text("PROJECTS", color = PfMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp))
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
             projects.forEach { item ->
                 NavigationDrawerItem(
@@ -471,31 +817,29 @@ private fun PfDrawer(
                     selected = current.id == item.id,
                     onClick = { onProject(item) },
                     colors = NavigationDrawerItemDefaults.colors(
-                        selectedContainerColor = PfRaised,
-                        selectedTextColor = PfText,
+                        selectedContainerColor = PfAccentSoft,
+                        selectedTextColor = PfAccent,
                         unselectedContainerColor = Color.Transparent,
                         unselectedTextColor = PfText
                     )
                 )
             }
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(12.dp))
             Surface(color = PfRaised, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
                 Column(Modifier.padding(12.dp)) {
                     Text("Project brain", color = PfText, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
-                    Spacer(Modifier.height(4.dp))
-                    Text(current.brain, color = PfMuted, fontSize = 10.sp, maxLines = 10, overflow = TextOverflow.Ellipsis)
+                    Text(current.brain, color = PfMuted, fontSize = 10.sp, maxLines = 9, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
                 }
             }
             Spacer(Modifier.height(12.dp))
-            Text("TOOLS", color = PfMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp))
             PfDrawerAction("Full app preview", onPreview)
             PfDrawerAction("Build", onBuild)
             PfDrawerAction("Cross-check build", onCrossCheck)
-            PfDrawerAction("AI & build connectors", onIntegrations)
+            PfDrawerAction("AI & build connections", onIntegrations)
             PfDrawerAction("Capability map", onCapabilities)
         }
         HorizontalDivider(color = PfLine)
-        TextButton(onClick = onUpdater, modifier = Modifier.fillMaxWidth()) { Text("PocketForge updates", color = PfText) }
+        if (BuildConfig.ENABLE_SIDELOAD_UPDATER) TextButton(onClick = onUpdater, modifier = Modifier.fillMaxWidth()) { Text("PocketForge updates", color = PfText) }
         Spacer(Modifier.height(10.dp))
     }
 }
@@ -510,37 +854,38 @@ private fun PfDrawerAction(label: String, onClick: () -> Unit) {
 @Composable
 private fun PfEmptyState(modifier: Modifier, providerCount: Int, onPrompt: (String) -> Unit, onCapabilities: () -> Unit) {
     Column(modifier.padding(horizontal = 22.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        Surface(color = PfText, shape = CircleShape) {
-            Text("P", color = Color.Black, fontWeight = FontWeight.Black, fontSize = 22.sp, modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp))
+        Surface(color = PfAccentSoft, shape = RoundedCornerShape(18.dp), modifier = Modifier.size(58.dp)) {
+            Box(contentAlignment = Alignment.Center) { Text("P", color = PfAccent, fontWeight = FontWeight.Black, fontSize = 23.sp) }
         }
-        Spacer(Modifier.height(18.dp))
-        Text("What should we build?", color = PfText, fontWeight = FontWeight.SemiBold, fontSize = 25.sp)
-        Spacer(Modifier.height(7.dp))
+        Spacer(Modifier.height(17.dp))
+        Text("Advanced Workspace", color = PfText, fontWeight = FontWeight.Black, fontSize = 25.sp)
         Text(
             when {
-                providerCount >= 3 -> "Three free AIs are available for architect, reviewer, and lead roles."
-                providerCount == 2 -> "Two free AIs are available for independent cross-checking."
-                providerCount == 1 -> "One free AI is ready. Add another to unlock independent review."
-                else -> "Connect a free AI to start reasoning. The workspace and build tools stay local until you do."
+                providerCount >= 3 -> "Architect, reviewer, and lead roles are available across three connected providers."
+                providerCount == 2 -> "Two providers are ready for independent cross-checking."
+                providerCount == 1 -> "One provider is ready. Connect another to unlock independent review."
+                else -> "Connect an AI provider to start repository reasoning and agent workflows."
             },
             color = PfMuted,
-            fontSize = 13.sp
+            fontSize = 12.sp,
+            lineHeight = 17.sp,
+            modifier = Modifier.padding(top = 7.dp)
         )
-        Spacer(Modifier.height(24.dp))
-        PfSuggestion("Build me a complete Android app from this idea", onPrompt)
+        Spacer(Modifier.height(22.dp))
+        PfSuggestion("Use Autopilot to inspect my repo, make the smallest safe change, and verify the APK", onPrompt)
         Spacer(Modifier.height(8.dp))
-        PfSuggestion("Inspect my project, challenge the architecture, and find the smartest next move", onPrompt)
+        PfSuggestion("Challenge this project architecture and show me the safest next move", onPrompt)
         Spacer(Modifier.height(8.dp))
-        PfSuggestion("Use Autopilot to make the smallest safe change and verify the APK", onPrompt)
-        Spacer(Modifier.height(14.dp))
-        TextButton(onClick = onCapabilities) { Text("See what PocketForge can do", color = PfMuted) }
+        PfSuggestion("Build this project and treat the compiler as the final authority", onPrompt)
+        Spacer(Modifier.height(12.dp))
+        TextButton(onClick = onCapabilities) { Text("See PocketForge capabilities", color = PfAccent) }
     }
 }
 
 @Composable
 private fun PfSuggestion(text: String, onPrompt: (String) -> Unit) {
     Surface(modifier = Modifier.fillMaxWidth().clickable { onPrompt(text) }, color = PfSurface, shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, PfLine)) {
-        Text(text, color = PfText, fontSize = 13.sp, modifier = Modifier.padding(14.dp))
+        Text(text, color = PfText, fontSize = 12.sp, lineHeight = 17.sp, modifier = Modifier.padding(14.dp))
     }
 }
 
@@ -549,43 +894,51 @@ private fun PfMessage(message: WorkspaceMessage) {
     if (message.role == "user") {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             Surface(color = PfUser, shape = RoundedCornerShape(20.dp), modifier = Modifier.widthIn(max = 330.dp)) {
-                Text(message.text, color = PfText, fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.padding(horizontal = 15.dp, vertical = 11.dp))
+                Text(message.text, color = PfText, fontSize = 13.sp, lineHeight = 19.sp, modifier = Modifier.padding(horizontal = 15.dp, vertical = 11.dp))
             }
         }
     } else {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-            Surface(color = PfText, shape = CircleShape) {
-                Text("P", color = Color.Black, fontWeight = FontWeight.Black, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp))
+            Surface(color = PfAccentSoft, shape = CircleShape) {
+                Text("P", color = PfAccent, fontWeight = FontWeight.Black, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp))
             }
             Spacer(Modifier.width(10.dp))
-            Text(message.text, color = PfText, fontSize = 14.sp, lineHeight = 21.sp, modifier = Modifier.weight(1f).padding(top = 3.dp))
+            Text(message.text, color = PfText, fontSize = 13.sp, lineHeight = 20.sp, modifier = Modifier.weight(1f).padding(top = 3.dp))
         }
     }
 }
 
 @Composable
 private fun PfWorkTrace(steps: List<AgentStep>, busy: Boolean) {
-    var expanded by remember { mutableStateOf(true) }
     val done = steps.count { it.state == AgentStepState.DONE }
     val failed = steps.any { it.state == AgentStepState.FAILED }
     val active = steps.lastOrNull { it.state == AgentStepState.WORKING }
-    Surface(modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded }, color = PfSurface, shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, PfLine)) {
-        Column(Modifier.padding(14.dp)) {
+    Surface(color = PfSurface, shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, PfLine)) {
+        Column(Modifier.padding(15.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(if (busy) "◌" else if (failed) "!" else "✓", color = if (failed) PfBad else if (busy) PfWarn else PfGood, fontSize = 17.sp)
-                Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(if (busy) active?.title ?: "Working" else if (failed) "Stopped at a blocker" else "Work complete", color = PfText, fontWeight = FontWeight.SemiBold)
-                    Text("$done/${steps.size} stages complete · tap for live trace", color = PfMuted, fontSize = 10.sp)
+                    Text("Live work trace", color = PfText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text(
+                        if (busy) active?.title ?: "PocketForge is working" else if (failed) "Stopped at a blocker" else "Run stages complete",
+                        color = if (failed) PfBad else if (busy) PfAccent else PfMuted,
+                        fontSize = 10.sp,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
                 }
-                Text(if (expanded) "⌃" else "⌄", color = PfMuted)
+                Surface(color = if (failed) PfBad.copy(alpha = 0.13f) else if (busy) PfAccentSoft else PfGood.copy(alpha = 0.13f), shape = RoundedCornerShape(100.dp)) {
+                    Text(
+                        if (busy) "$done/${steps.size} RUNNING" else if (failed) "BLOCKED" else "$done/${steps.size} DONE",
+                        color = if (failed) PfBad else if (busy) PfAccent else PfGood,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp)
+                    )
+                }
             }
-            if (expanded) {
-                Spacer(Modifier.height(12.dp))
-                steps.forEachIndexed { index, step ->
-                    PfStepRow(step)
-                    if (index != steps.lastIndex) HorizontalDivider(color = PfLine, modifier = Modifier.padding(start = 26.dp))
-                }
+            Spacer(Modifier.height(12.dp))
+            steps.forEachIndexed { index, step ->
+                PfStepRow(step)
+                if (index != steps.lastIndex) HorizontalDivider(color = PfLine, modifier = Modifier.padding(start = 30.dp))
             }
         }
     }
@@ -593,6 +946,7 @@ private fun PfWorkTrace(steps: List<AgentStep>, busy: Boolean) {
 
 @Composable
 private fun PfStepRow(step: AgentStep) {
+    var expanded by remember(step.id) { mutableStateOf(step.state == AgentStepState.WORKING || step.state == AgentStepState.FAILED) }
     val marker = when (step.state) {
         AgentStepState.WAITING -> "○"
         AgentStepState.WORKING -> "◌"
@@ -601,22 +955,51 @@ private fun PfStepRow(step: AgentStep) {
     }
     val color = when (step.state) {
         AgentStepState.WAITING -> PfMuted
-        AgentStepState.WORKING -> PfWarn
+        AgentStepState.WORKING -> PfAccent
         AgentStepState.DONE -> PfGood
         AgentStepState.FAILED -> PfBad
     }
-    Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.Top) {
-        Text(marker, color = color, fontWeight = FontWeight.Bold, modifier = Modifier.width(24.dp))
+    Row(
+        Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(vertical = 10.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Text(marker, color = color, fontWeight = FontWeight.Bold, fontSize = 15.sp, modifier = Modifier.width(26.dp))
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(step.agent, color = PfText, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
                 step.provider?.let {
                     Spacer(Modifier.width(7.dp))
-                    Text(it, color = PfMuted, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Surface(color = PfRaised, shape = RoundedCornerShape(100.dp)) {
+                        Text(it, color = PfMuted, fontSize = 8.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp))
+                    }
                 }
             }
-            Text(step.title, color = PfText, fontSize = 12.sp)
-            if (step.detail.isNotBlank()) Text(step.detail, color = PfMuted, fontSize = 10.sp, lineHeight = 14.sp, maxLines = 6, overflow = TextOverflow.Ellipsis)
+            Text(step.title, color = if (step.state == AgentStepState.WORKING) PfAccent else PfText, fontSize = 11.sp, modifier = Modifier.padding(top = 2.dp))
+            if (expanded && step.detail.isNotBlank()) {
+                Text(step.detail, color = PfMuted, fontSize = 10.sp, lineHeight = 14.sp, modifier = Modifier.padding(top = 5.dp))
+            }
+        }
+        Text(if (expanded) "⌃" else "⌄", color = PfMuted, fontSize = 10.sp)
+    }
+}
+
+@Composable
+private fun PfLogRow(step: AgentStep) {
+    val color = when (step.state) {
+        AgentStepState.WAITING -> PfMuted
+        AgentStepState.WORKING -> PfAccent
+        AgentStepState.DONE -> PfGood
+        AgentStepState.FAILED -> PfBad
+    }
+    Surface(color = PfSurface, shape = RoundedCornerShape(15.dp), border = BorderStroke(1.dp, PfLine)) {
+        Column(Modifier.padding(13.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(step.agent, color = PfText, fontWeight = FontWeight.Bold, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                Text(step.state.name, color = color, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+            }
+            Text(step.title, color = PfText, fontSize = 11.sp, modifier = Modifier.padding(top = 3.dp))
+            if (step.detail.isNotBlank()) Text(step.detail, color = PfMuted, fontSize = 9.sp, lineHeight = 13.sp, modifier = Modifier.padding(top = 4.dp))
+            step.provider?.let { Text("Provider: $it", color = PfBlue, fontSize = 8.sp, modifier = Modifier.padding(top = 5.dp)) }
         }
     }
 }
@@ -642,7 +1025,7 @@ private fun PfComposer(
                     TextField(
                         value = value,
                         onValueChange = onValue,
-                        placeholder = { Text(if (busy) "PocketForge is working…" else "Message PocketForge", color = PfMuted) },
+                        placeholder = { Text(if (busy) "PocketForge is working…" else "Tell PocketForge what to build next…", color = PfMuted) },
                         enabled = !busy,
                         modifier = Modifier.fillMaxWidth(),
                         maxLines = 6,
@@ -683,18 +1066,73 @@ private fun PfComposer(
                         TextButton(onClick = onVoice, enabled = !busy, contentPadding = PaddingValues(7.dp)) { Text("◉", color = PfText, fontSize = 17.sp) }
                         Surface(
                             modifier = Modifier.size(34.dp).clickable(enabled = !busy && value.isNotBlank(), onClick = onSend),
-                            color = if (!busy && value.isNotBlank()) PfText else PfLine,
+                            color = if (!busy && value.isNotBlank()) PfAccent else PfLine,
                             shape = CircleShape
                         ) {
                             Box(contentAlignment = Alignment.Center) {
-                                Text(if (busy) "■" else "↑", color = if (!busy && value.isNotBlank()) Color.Black else PfMuted, fontWeight = FontWeight.Black)
+                                Text(if (busy) "■" else "↑", color = if (!busy && value.isNotBlank()) Color(0xFF07140B) else PfMuted, fontWeight = FontWeight.Black)
                             }
                         }
                     }
                 }
             }
             Spacer(Modifier.height(5.dp))
-            Text("Visible work trace · durable project memory · verified builds outrank AI confidence", color = PfMuted, fontSize = 9.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
+            Text("Visible work trace · protected branches · verified builds outrank AI confidence", color = PfMuted, fontSize = 9.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
+        }
+    }
+}
+
+@Composable
+private fun PfInfoCard(title: String, subtitle: String, content: @Composable ColumnScope.() -> Unit) {
+    Surface(color = PfSurface, shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, PfLine), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(14.dp)) {
+            Text(title, color = PfText, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            Text(subtitle, color = PfMuted, fontSize = 9.sp, modifier = Modifier.padding(top = 2.dp, bottom = 10.dp), maxLines = 2, overflow = TextOverflow.Ellipsis)
+            content()
+        }
+    }
+}
+
+@Composable
+private fun PfFileRow(name: String, detail: String) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+        Surface(color = PfAccentSoft, shape = RoundedCornerShape(8.dp), modifier = Modifier.size(30.dp)) {
+            Box(contentAlignment = Alignment.Center) { Text("▤", color = PfAccent, fontSize = 12.sp) }
+        }
+        Spacer(Modifier.width(9.dp))
+        Column(Modifier.weight(1f)) {
+            Text(name, color = PfText, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(detail, color = PfMuted, fontSize = 9.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+@Composable
+private fun PfStatusRow(label: String, ready: Boolean, detail: String) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(if (ready) "●" else "○", color = if (ready) PfGood else PfMuted, fontSize = 10.sp)
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f)) {
+            Text(label, color = PfText, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+            Text(detail, color = PfMuted, fontSize = 9.sp)
+        }
+    }
+}
+
+@Composable
+private fun PfKeyValue(label: String, value: String) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.Top) {
+        Text(label, color = PfMuted, fontSize = 9.sp, modifier = Modifier.width(88.dp))
+        Text(value, color = PfText, fontSize = 9.sp, lineHeight = 13.sp, modifier = Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun PfEmptyPanel(title: String, detail: String) {
+    Surface(color = PfSurface, shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, PfLine)) {
+        Column(Modifier.fillMaxWidth().padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(title, color = PfText, fontWeight = FontWeight.Bold)
+            Text(detail, color = PfMuted, fontSize = 11.sp, lineHeight = 16.sp, modifier = Modifier.padding(top = 5.dp))
         }
     }
 }
@@ -702,25 +1140,21 @@ private fun PfComposer(
 @Composable
 private fun PfCapabilitiesDialog(onDismiss: () -> Unit) {
     Dialog(onDismissRequest = onDismiss) {
-        Surface(color = PfSurface, shape = RoundedCornerShape(24.dp), modifier = Modifier.fillMaxWidth()) {
+        Surface(color = PfSurface, shape = RoundedCornerShape(24.dp), modifier = Modifier.fillMaxWidth(), border = BorderStroke(1.dp, PfLine)) {
             Column(Modifier.verticalScroll(rememberScrollState()).padding(18.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("PocketForge capability map", color = PfText, fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.weight(1f))
                     TextButton(onClick = onDismiss) { Text("Done") }
                 }
-                Spacer(Modifier.height(10.dp))
-                PfCapability("LIVE", "Conversation-first workspace", "Chat is the command surface; projects, tools, memory, previews, and builds hang off it.", PfGood)
-                PfCapability("LIVE", "Visible agent work trace", "See architect, reviewer, lead, router, repository, repair, and verifier stages while they are running.", PfGood)
-                PfCapability("LIVE", "Free multi-model swarm", "Gemini, OpenRouter free models, and Groq can independently challenge one another before a contract is accepted.", PfGood)
-                PfCapability("LIVE", "Durable project brain", "Important project intent, protected behavior, branch results, and verification rules survive across chats.", PfGood)
-                PfCapability("LIVE", "Protected repository Autopilot", "Create a checkpoint branch, inspect only relevant files, apply bounded edits, run CI, read real failure logs, repair, and retry without editing the green branch.", PfGood)
-                PfCapability("LIVE", "Multi-builder verification", "GitHub Actions is primary; Codemagic and Bitrise can cross-check the same APK job.", PfGood)
-                PfCapability("LIVE", "Full-screen app preview", "Preview takes over the screen instead of living in a tiny card.", PfGood)
-                PfCapability("LIVE", "Voice prompt capture", "Use Android speech recognition without paying another AI provider.", PfGood)
-                PfCapability("NEXT", "Review + merge controls", "Inspect the Autopilot branch, compare exact diffs, then explicitly promote a verified branch to the project's green branch.", PfWarn)
-                PfCapability("NEXT", "Artifact-aware chat", "APK, screenshots, logs, diffs, database schema, and test output become first-class conversation objects.", PfWarn)
                 Spacer(Modifier.height(8.dp))
-                Text("Free models can make the system powerful operationally, but they do not magically become smarter than paid frontier models. PocketForge’s advantage is orchestration, memory, tools, verification, and model diversity.", color = PfMuted, fontSize = 11.sp, lineHeight = 16.sp)
+                PfCapability("LIVE", "Plain-English workspace", "Projects, tools, memory, previews, and builds hang off the conversation surface.", PfGood)
+                PfCapability("LIVE", "Visible agent work trace", "See router, architect, reviewer, lead, repository, repair, and verifier stages while they run.", PfGood)
+                PfCapability("LIVE", "Provider-aware Auto routing", "Connected AI providers can hand work off when one is unavailable.", PfGood)
+                PfCapability("LIVE", "Protected repository Autopilot", "Writes go to an isolated branch; the green/default branch stays untouched until explicitly promoted.", PfGood)
+                PfCapability("LIVE", "Compiler-first verification", "Tests, lint, compilation, APK assembly, and signature checks outrank model confidence.", PfGood)
+                PfCapability("LIVE", "Files + Logs console", "Inspect generated app structure, changed repository paths, live stage logs, and verification summary.", PfGood)
+                PfCapability("NEXT", "Review + merge controls", "Inspect exact diffs and explicitly promote a verified branch.", PfWarn)
+                PfCapability("NEXT", "Artifact-aware workspace", "Treat APKs, screenshots, diffs, schemas, and test output as first-class objects.", PfWarn)
             }
         }
     }
@@ -748,7 +1182,7 @@ private fun PfNewProjectDialog(onDismiss: () -> Unit, onCreate: (String) -> Unit
         containerColor = PfSurface,
         title = { Text("New project") },
         text = {
-            OutlinedTextField(value = name, onValueChange = { name = it }, placeholder = { Text("Project name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = name, onValueChange = { name = it.take(60) }, placeholder = { Text("Project name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         },
         confirmButton = { TextButton(onClick = { onCreate(name) }, enabled = name.isNotBlank()) { Text("Create") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
