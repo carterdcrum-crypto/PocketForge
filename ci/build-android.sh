@@ -37,6 +37,7 @@ echo "PocketForge CI: unit tests + lint + beta APK + hardened release APK"
 
 APK="$ROOT/app/build/outputs/apk/debug/app-debug.apk"
 RELEASE_APK="$ROOT/app/build/outputs/apk/release/app-release-unsigned.apk"
+CERT_REPORT="$APK.cert.txt"
 test -f "$APK"
 test -f "$RELEASE_APK"
 
@@ -47,7 +48,9 @@ if [[ -d "$SDK_ROOT/build-tools" ]]; then
   AAPT="$(find "$SDK_ROOT/build-tools" -type f -name aapt 2>/dev/null | sort | tail -n 1 || true)"
 fi
 if [[ -n "$APKSIGNER" ]]; then
-  "$APKSIGNER" verify --verbose "$APK"
+  "$APKSIGNER" verify --verbose --print-certs "$APK" | tee "$CERT_REPORT"
+else
+  echo "apksigner unavailable" > "$CERT_REPORT"
 fi
 
 # Play builds must not retain the beta-only permission that can install downloaded APKs.
