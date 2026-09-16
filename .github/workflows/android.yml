@@ -39,6 +39,21 @@ jobs:
         with:
           gradle-version: '8.10.2'
 
+      - name: Restore stable beta signing key
+        env:
+          BETA_KEYSTORE_B64: ${{ secrets.POCKETFORGE_BETA_KEYSTORE_B64 }}
+          BETA_KEY_PASSWORD: ${{ secrets.POCKETFORGE_BETA_KEY_PASSWORD }}
+        run: |
+          if [[ -n "$BETA_KEYSTORE_B64" && -n "$BETA_KEY_PASSWORD" ]]; then
+            printf '%s' "$BETA_KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/pocketforge-beta.p12"
+            echo "POCKETFORGE_BETA_KEYSTORE=$RUNNER_TEMP/pocketforge-beta.p12" >> "$GITHUB_ENV"
+            echo "POCKETFORGE_BETA_KEY_PASSWORD=$BETA_KEY_PASSWORD" >> "$GITHUB_ENV"
+            echo "POCKETFORGE_BETA_KEY_ALIAS=pocketforge-beta" >> "$GITHUB_ENV"
+            echo "Stable PocketForge beta signing is enabled."
+          else
+            echo "Stable beta signing secrets are not configured yet; CI will use a temporary debug key for this build."
+          fi
+
       - name: Test, lint, build and verify APK
         run: bash ci/build-android.sh
 
@@ -49,6 +64,7 @@ jobs:
           path: |
             app/build/outputs/apk/debug/app-debug.apk
             app/build/outputs/apk/debug/app-debug.apk.sha256
+            app/build/outputs/apk/debug/app-debug.apk.cert.txt
           if-no-files-found: error
 
       - name: Publish green beta release
@@ -58,6 +74,7 @@ jobs:
           gh release create "build-${GITHUB_RUN_NUMBER}" \
             app/build/outputs/apk/debug/app-debug.apk \
             app/build/outputs/apk/debug/app-debug.apk.sha256 \
+            app/build/outputs/apk/debug/app-debug.apk.cert.txt \
             --repo "${GITHUB_REPOSITORY}" \
             --target "${GITHUB_SHA}" \
             --title "PocketForge Build ${GITHUB_RUN_NUMBER}" \
