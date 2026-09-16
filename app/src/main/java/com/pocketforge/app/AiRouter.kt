@@ -23,6 +23,12 @@ enum class FreeAiProvider(val label: String) {
     GROQ("Groq GPT-OSS 120B")
 }
 
+enum class AiJobComplexity(val label: String, val thinkingLevel: String) {
+    QUICK("Quick", "low"),
+    STANDARD("Standard", "medium"),
+    DEEP("Deep", "high")
+}
+
 object AiRouter {
     private const val PLAN_SYSTEM = """
 You are PocketForge's software architect. Turn the user's plain-English app request into a safe implementation contract for an Android app.
@@ -41,6 +47,28 @@ You are PocketForge's no-code app designer. Turn the user's plain-English idea i
 Return JSON only with this exact shape: {"schemaVersion":1,"name":"...","tagline":"...","accent":"#RRGGBB","dark":true,"screens":[{"id":"lowercase_id","title":"Short title","type":"list|checklist|ledger|calculator|info","description":"...","fields":[{"id":"lowercase_id","label":"...","type":"text|number|date|multiline","required":true}],"operation":"sum|product|difference|ratio","unit":"$","content":"..."}]}
 Use 1–4 screens and keep it practical for a beginner. Use a ledger for money entries, checklist for tasks, calculator only with number fields, list for records, and info for instructions. No accounts, network services, fake data, or unsupported features. Keep names and labels short.
 """
+
+    private val deepSignals = listOf(
+        "repo", "repository", "architecture", "refactor", "migration", "gradle",
+        "build fail", "compiler", "multiple files", "end-to-end", "backend", "database",
+        "authentication", "auth", "github", "release", "deploy", "security", "crash",
+        "dependency", "api integration", "workflow", "ci", "entire app", "whole app"
+    )
+
+    private val quickSignals = listOf(
+        "rename", "change text", "copy", "color", "padding", "spacing", "typo",
+        "label", "icon", "wording", "font size"
+    )
+
+    fun classify(prompt: String): AiJobComplexity {
+        val normalized = prompt.lowercase()
+        val deepHits = deepSignals.count(normalized::contains)
+        return when {
+            prompt.length > 900 || deepHits >= 2 -> AiJobComplexity.DEEP
+            prompt.length < 220 && deepHits == 0 && quickSignals.any(normalized::contains) -> AiJobComplexity.QUICK
+            else -> AiJobComplexity.STANDARD
+        }
+    }
 
     fun configuredProviders(vault: SecretVault): List<FreeAiProvider> = buildList {
         if (vault.has(IntegrationKeys.GEMINI)) add(FreeAiProvider.GEMINI)
@@ -139,14 +167,26 @@ Use 1–4 screens and keep it practical for a beginner. Use a ledger for money e
         vault: SecretVault,
         expectJson: Boolean = false
     ): String = when (provider) {
-        FreeAiProvider.GEMINI -> callGemini(vault.get(IntegrationKeys.GEMINI), systemPrompt, userPrompt, expectJson)
+        FreeAiProvider.GEMINI -> callGemini(
+            vault.get(IntegrationKeys.GEMINI),
+            systemPrompt,
+            userPrompt,
+            expectJson,
+            classify(userPrompt).thinkingLevel
+        )
         FreeAiProvider.OPENROUTER -> callOpenRouter(vault.get(IntegrationKeys.OPENROUTER), systemPrompt, userPrompt)
         FreeAiProvider.GROQ -> callGroq(vault.get(IntegrationKeys.GROQ), systemPrompt, userPrompt)
     }
 
     fun test(provider: String, key: String): String = when (provider) {
         "openrouter" -> callOpenRouter(key, "You are testing an API connection.", "Reply with exactly: PocketForge OpenRouter connected").trim()
-        "gemini" -> callGemini(key, "You are testing an API connection.", "Reply with exactly: PocketForge Gemini connected", false).trim()
+        "gemini" -> callGemini(
+            key,
+            "You are testing an API connection.",
+            "Reply with exactly: PocketForge Gemini connected",
+            false,
+            AiJobComplexity.QUICK.thinkingLevel
+        ).trim()
         "groq" -> callGroq(key, "You are testing an API connection.", "Reply with exactly: PocketForge Groq connected").trim()
         else -> error("Unknown provider")
     }
@@ -177,11 +217,13 @@ Use 1–4 screens and keep it practical for a beginner. Use a ledger for money e
         key: String,
         systemPrompt: String,
         userPrompt: String,
-        expectJson: Boolean
+        expectJson: Boolean,
+        thinkingLevel: String
     ): String {
         require(key.isNotBlank()) { "Gemini key is missing." }
         val encoded = URLEncoder.encode(key, Charsets.UTF_8.name())
-        val generationConfig = JSONObject().put("temperature", 0.2)
+        val generationConfig = JSONObject()
+            .put("thinkingConfig", JSONObject().put("thinkingLevel", thinkingLevel))
         if (expectJson) generationConfig.put("responseMimeType", "application/json")
 
         val body = JSONObject()
