@@ -7,6 +7,10 @@ import androidx.activity.compose.setContent
 class AgentLauncherActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { PocketForgeOfficialApp() }
+        setContent {
+            PocketForgeBrandTheme {
+                PocketForgeOfficialApp()
+            }
+        }
     }
 }
