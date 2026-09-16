@@ -62,10 +62,10 @@ Use 1–4 screens and keep it practical for a beginner. Use a ledger for money e
 
     fun classify(prompt: String): AiJobComplexity {
         val normalized = prompt.lowercase()
-        val deepHits = deepSignals.count(normalized::contains)
+        val deepHits = deepSignals.count { signal -> normalized.contains(signal) }
         return when {
             prompt.length > 900 || deepHits >= 2 -> AiJobComplexity.DEEP
-            prompt.length < 220 && deepHits == 0 && quickSignals.any(normalized::contains) -> AiJobComplexity.QUICK
+            prompt.length < 220 && deepHits == 0 && quickSignals.any { signal -> normalized.contains(signal) } -> AiJobComplexity.QUICK
             else -> AiJobComplexity.STANDARD
         }
     }
