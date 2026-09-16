@@ -9,7 +9,7 @@ class AgentLauncherActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             PocketForgeBrandTheme {
-                PocketForgeOfficialApp()
+                PocketForgePhotoSpecApp()
             }
         }
     }
