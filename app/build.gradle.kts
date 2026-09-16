@@ -10,6 +10,13 @@ val ciBuildNumber = listOf(
     providers.environmentVariable("BITRISE_BUILD_NUMBER").orNull
 ).firstOrNull { !it.isNullOrBlank() }?.toIntOrNull() ?: 1
 
+val betaKeystorePath = providers.environmentVariable("POCKETFORGE_BETA_KEYSTORE").orNull
+val betaKeystorePassword = providers.environmentVariable("POCKETFORGE_BETA_KEY_PASSWORD").orNull
+val betaKeyAlias = providers.environmentVariable("POCKETFORGE_BETA_KEY_ALIAS").orNull ?: "pocketforge-beta"
+val betaSigningConfigured = !betaKeystorePath.isNullOrBlank() &&
+    !betaKeystorePassword.isNullOrBlank() &&
+    project.file(betaKeystorePath!!).isFile
+
 android {
     namespace = "com.pocketforge.app"
     compileSdk = 35
@@ -22,14 +29,31 @@ android {
         versionName = "0.4.$ciBuildNumber"
     }
 
+    signingConfigs {
+        if (betaSigningConfigured) {
+            create("beta") {
+                storeFile = project.file(betaKeystorePath!!)
+                storePassword = betaKeystorePassword
+                keyAlias = betaKeyAlias
+                keyPassword = betaKeystorePassword
+            }
+        }
+    }
+
     buildTypes {
         debug {
             // Debug/beta builds intentionally keep the GitHub APK updater while PocketForge is being tested.
+            // CI uses one private persistent beta key when configured, allowing true in-place updates.
             buildConfigField("boolean", "ENABLE_SIDELOAD_UPDATER", "true")
+            buildConfigField("boolean", "BETA_SIGNING_STABLE", betaSigningConfigured.toString())
+            if (betaSigningConfigured) {
+                signingConfig = signingConfigs.getByName("beta")
+            }
         }
         release {
             // Google Play production builds must never expose the sideload updater.
             buildConfigField("boolean", "ENABLE_SIDELOAD_UPDATER", "false")
+            buildConfigField("boolean", "BETA_SIGNING_STABLE", "false")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
