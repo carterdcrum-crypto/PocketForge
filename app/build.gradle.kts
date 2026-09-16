@@ -42,8 +42,6 @@ android {
 
     buildTypes {
         debug {
-            // Debug/beta builds intentionally keep the GitHub APK updater while PocketForge is being tested.
-            // CI uses one private persistent beta key when configured, allowing true in-place updates.
             buildConfigField("boolean", "ENABLE_SIDELOAD_UPDATER", "true")
             buildConfigField("boolean", "BETA_SIGNING_STABLE", betaSigningConfigured.toString())
             if (betaSigningConfigured) {
@@ -51,7 +49,6 @@ android {
             }
         }
         release {
-            // Google Play production builds must never expose the sideload updater.
             buildConfigField("boolean", "ENABLE_SIDELOAD_UPDATER", "false")
             buildConfigField("boolean", "BETA_SIGNING_STABLE", "false")
             isMinifyEnabled = true
@@ -86,8 +83,8 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-extended")
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
-    // Local JVM tests need a concrete org.json implementation; Android's SDK jar exposes stubs there.
     testImplementation("org.json:json:20240303")
 }
