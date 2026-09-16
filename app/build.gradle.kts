@@ -22,6 +22,20 @@ android {
         versionName = "0.4.$ciBuildNumber"
     }
 
+    buildTypes {
+        debug {
+            // Debug/beta builds intentionally keep the GitHub APK updater while PocketForge is being tested.
+            buildConfigField("boolean", "ENABLE_SIDELOAD_UPDATER", "true")
+        }
+        release {
+            // Google Play production builds must never expose the sideload updater.
+            buildConfigField("boolean", "ENABLE_SIDELOAD_UPDATER", "false")
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -33,6 +47,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     packaging {
